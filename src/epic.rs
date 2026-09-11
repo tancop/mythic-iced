@@ -7,9 +7,9 @@ use isahc::{
     http,
 };
 use serde::{Deserialize, Serialize};
-use std::{cell::LazyCell, io::Write};
+use std::io::Write;
 
-use crate::{decode, scope::ScopeFns};
+use crate::decode;
 
 const USER_AGENT: &'static str =
     "UELauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit";
