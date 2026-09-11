@@ -251,7 +251,7 @@ pub async fn get_library_items(
     let mut url = GET_LIBRARY_WITH_METADATA_URL.to_string();
 
     loop {
-        let req = Request::get(url.as_ref())
+        let req = Request::get(&url)
             .bearer_auth(auth_token)
             .user_agent(USER_AGENT)
             .body(())
@@ -363,24 +363,19 @@ pub async fn get_game_info(
     auth_token: &str,
     item: &LibraryItem,
 ) -> anyhow::Result<CatalogItem> {
-    let url = format!("{}/namespace/{}/bulk/items", GAME_INFO_URL, item.namespace);
+    let url = format!(
+        "{}/namespace/{}/bulk/items?id={}&includeDLCDetails=false\
+            &includeMainGameDetails=true&country=US&locale=en",
+        GAME_INFO_URL, item.namespace, &item.catalog_item_id
+    );
 
-    let mut url = Url::parse(&url).unwrap();
-
-    url.query_pairs_mut()
-        .append_pair("id", item.catalog_item_id.as_ref())
-        .append_pair("includeDLCDetails", "false")
-        .append_pair("includeMainGameDetails", "true")
-        .append_pair("country", "US")
-        .append_pair("locale", "en");
-
-    let res = client
-        .get(url)
+    let req = Request::get(url)
         .bearer_auth(auth_token)
-        .header("User-Agent", USER_AGENT)
-        .send()
-        .await?
-        .error_for_status()?;
+        .user_agent(USER_AGENT)
+        .body(())
+        .unwrap();
+
+    let mut res = client.send_async(req).await?;
 
     log::debug!("game info: {:?}", res);
 

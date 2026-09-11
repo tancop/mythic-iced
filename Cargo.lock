@@ -1807,6 +1807,8 @@ dependencies = [
  "mime",
  "pem-rfc7468",
  "polling",
+ "serde",
+ "serde_json",
  "slab",
  "sluice",
  "tracing",
