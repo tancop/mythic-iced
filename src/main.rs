@@ -50,6 +50,7 @@ fn update(state: &mut State, message: Message) {
             let auth_data = block_on(epic::authenticate(&state.http_client, &token));
             match auth_data {
                 Ok(auth_data) => {
+                    save_refresh_token(&auth_data.refresh_token);
                     state.auth_data = Some(auth_data);
                     state.page = Page::Library;
                 }
