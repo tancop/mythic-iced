@@ -97,7 +97,10 @@ struct TokenRequest<'a> {
 
 #[derive(Deserialize, Debug)]
 struct AuthError {
+    #[serde(rename = "errorCode")]
     error_code: String,
+    #[serde(rename = "errorMessage")]
+    error_message: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -134,7 +137,11 @@ pub async fn authenticate(client: &isahc::HttpClient, auth_code: &str) -> anyhow
             serde_json::error::Category::Data => {
                 // valid JSON but no data fields, API returned error
                 let err: AuthError = serde_json::from_slice(&bytes).unwrap();
-                bail!("authentication failed with error {}", err.error_code);
+                bail!(
+                    "authentication failed with error {}: {}",
+                    err.error_code,
+                    err.error_message
+                );
             }
             _ => bail!("failed to parse response: {}", e),
         },

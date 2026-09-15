@@ -1,4 +1,4 @@
-use iced::Color;
+use iced::{Color, theme::Palette};
 
 const fn hsl(h: f32, s: f32, l: f32) -> Color {
     const fn f(h: f32, s: f32, l: f32, n: u8) -> f32 {
@@ -15,3 +15,18 @@ pub const BACKGROUND: Color = hsl(195.0, 0.1, 0.1);
 pub const TEXT: Color = Color::WHITE;
 
 pub const ALT: Color = hsl(195.0, 0.1, 0.2);
+
+pub const SUCCESS: Color = hsl(130.0, 1.0, 0.5);
+
+pub const WARNING: Color = hsl(61.0, 0.9, 0.5);
+
+pub const DANGER: Color = hsl(6.0, 0.9, 0.5);
+
+pub const MAIN_PALETTE: Palette = Palette {
+    background: BACKGROUND,
+    text: TEXT,
+    primary: ALT,
+    success: SUCCESS,
+    warning: WARNING,
+    danger: DANGER,
+};

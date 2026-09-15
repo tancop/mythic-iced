@@ -1,6 +1,7 @@
-use iced::Element;
 use iced::futures::executor::block_on;
+use iced::{Element, Theme};
 use serde::{Deserialize, Serialize};
+use smart_default::SmartDefault;
 
 mod decode;
 mod epic;
@@ -9,49 +10,76 @@ mod ui;
 fn main() {
     env_logger::init();
 
-    iced::application(boot, update, view).run().unwrap();
+    iced::application(boot, update, view)
+        .theme(Theme::Custom(ui::get_theme().into()))
+        .run()
+        .unwrap();
 }
 
+#[derive(SmartDefault)]
 pub struct State {
+    #[default(isahc::HttpClient::new().unwrap())]
     pub http_client: isahc::HttpClient,
     pub auth_data: Option<epic::AuthData>,
+    #[default(Page::Login)]
     pub page: Page,
+    pub exchange_code: String,
 }
 
 pub enum Page {
     Library,
     Login,
+    PasteToken,
 }
 
-enum Message {}
+#[derive(Clone, Debug)]
+enum Message {
+    Ignored,
+    StartLogin,
+    SubmitToken(String),
+}
 
-fn update(_: &mut State, _: Message) {}
+fn update(state: &mut State, message: Message) {
+    match message {
+        Message::Ignored => {}
+        Message::StartLogin => {
+            open::that(epic::get_auth_url()).unwrap();
+            state.page = Page::PasteToken;
+        }
+        Message::SubmitToken(token) => {
+            let auth_data = block_on(epic::authenticate(&state.http_client, &token));
+            match auth_data {
+                Ok(auth_data) => {
+                    state.auth_data = Some(auth_data);
+                    state.page = Page::Library;
+                }
+                Err(e) => {
+                    log::error!("Failed to authenticate: {}", e);
+                    state.page = Page::Login;
+                }
+            }
+        }
+    }
+}
 
 fn view(state: &State) -> Element<'_, Message> {
     match state.page {
         Page::Library => ui::library::view(state),
         Page::Login => ui::login::view(state),
+        Page::PasteToken => ui::login::view_paste_token(state),
     }
 }
 
 fn boot() -> State {
-    let client = isahc::HttpClient::new().unwrap();
+    let mut state = State::default();
     if let Some(token) = load_refresh_token()
-        && let Ok(auth_data) = block_on(epic::refresh_token(&client, &token))
+        && let Ok(auth_data) = block_on(epic::refresh_token(&state.http_client, &token))
     {
         save_refresh_token(&auth_data.refresh_token);
-        State {
-            http_client: client,
-            auth_data: Some(auth_data),
-            page: Page::Library,
-        }
-    } else {
-        State {
-            http_client: client,
-            auth_data: None,
-            page: Page::Login,
-        }
+        state.auth_data = Some(auth_data);
+        state.page = Page::Library;
     }
+    state
 }
 
 #[derive(Serialize, Deserialize)]
