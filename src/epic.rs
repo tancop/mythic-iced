@@ -96,25 +96,19 @@ struct TokenRequest<'a> {
 }
 
 #[derive(Deserialize, Debug)]
-struct TokenResponse {
-    error_code: Option<String>,
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    #[serde(rename = "displayName")]
-    display_name: Option<String>,
+struct AuthError {
+    error_code: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AuthResult {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AuthData {
     pub access_token: String,
     pub refresh_token: String,
+    #[serde(rename = "displayName")]
     pub display_name: String,
 }
 
-pub async fn authenticate(
-    client: &isahc::HttpClient,
-    auth_code: &str,
-) -> anyhow::Result<AuthResult> {
+pub async fn authenticate(client: &isahc::HttpClient, auth_code: &str) -> anyhow::Result<AuthData> {
     let req = Request::post(TOKEN_URL)
         .content_type(ContentType::FormData)
         .user_agent(USER_AGENT)
@@ -132,28 +126,20 @@ pub async fn authenticate(
 
     log::debug!("response: {:?}", res);
     let bytes = res.bytes().await?;
+    log::debug!("response data: {:?}", bytes);
 
-    let res = serde_json::from_slice::<TokenResponse>(&bytes)?;
-
-    if let Some(err) = res.error_code {
-        bail!("authentication failed with error {}", err)
-    }
-
-    let Some(access_token) = res.access_token else {
-        bail!("access token not found")
+    let data = match serde_json::from_slice::<AuthData>(&bytes) {
+        Ok(data) => data,
+        Err(e) => match e.classify() {
+            serde_json::error::Category::Data => {
+                // valid JSON but no data fields, API returned error
+                let err: AuthError = serde_json::from_slice(&bytes).unwrap();
+                bail!("authentication failed with error {}", err.error_code);
+            }
+            _ => bail!("failed to parse response: {}", e),
+        },
     };
-    let Some(refresh_token) = res.refresh_token else {
-        bail!("refresh token not found")
-    };
-    let Some(display_name) = res.display_name else {
-        bail!("display name not found")
-    };
-
-    Ok(AuthResult {
-        access_token,
-        refresh_token,
-        display_name,
-    })
+    Ok(data)
 }
 
 const REFRESH_URL: &'static str = formatcp!("https://{}/account/api/oauth/verify", OAUTH_HOST);
@@ -170,7 +156,7 @@ struct RefreshRequest<'a> {
 pub async fn refresh_token(
     client: &isahc::HttpClient,
     refresh_token: &str,
-) -> anyhow::Result<AuthResult> {
+) -> anyhow::Result<AuthData> {
     let req = Request::post(TOKEN_URL)
         .content_type(ContentType::FormData)
         .user_agent(USER_AGENT)
@@ -189,19 +175,10 @@ pub async fn refresh_token(
 
     let bytes = res.bytes().await?;
     log::debug!("refresh response: {:?}", bytes);
-    let res = serde_json::from_slice::<TokenResponse>(&bytes)?;
+    let data = serde_json::from_slice::<AuthData>(&bytes)?;
+    log::debug!("response data: {:?}", bytes);
 
-    let access_token = res.access_token.ok_or(anyhow::anyhow!("no access token"))?;
-    let refresh_token = res
-        .refresh_token
-        .ok_or(anyhow::anyhow!("no refresh token"))?;
-    let display_name = res.display_name.ok_or(anyhow::anyhow!("no display name"))?;
-
-    Ok(AuthResult {
-        access_token,
-        refresh_token,
-        display_name,
-    })
+    Ok(data)
 }
 
 const GET_LIBRARY_URL: &'static str =
