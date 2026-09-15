@@ -181,9 +181,8 @@ pub async fn refresh_token(
     let mut res = client.send_async(req).await?;
 
     let bytes = res.bytes().await?;
-    log::debug!("refresh response: {:?}", bytes);
+    log::debug!("refresh response: {:?}", str::from_utf8(&bytes).unwrap());
     let data = serde_json::from_slice::<AuthData>(&bytes)?;
-    log::debug!("response data: {:?}", bytes);
 
     Ok(data)
 }
