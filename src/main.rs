@@ -1,5 +1,5 @@
 use iced::futures::executor::block_on;
-use iced::{Element, Font, Theme};
+use iced::{Element, Font, Task, Theme};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
@@ -16,6 +16,7 @@ fn main() {
     font.weight = iced::font::Weight::Medium;
 
     iced::application(boot, update, view)
+        .title("Mythic")
         .theme(Theme::Custom(ui::get_theme().into()))
         .font(UI_FONT)
         .default_font(font)
@@ -31,6 +32,7 @@ pub struct State {
     #[default(Page::Login)]
     pub page: Page,
     pub exchange_code: String,
+    pub library_items: Option<Vec<epic::LibraryItem>>,
 }
 
 pub enum Page {
@@ -44,28 +46,39 @@ enum Message {
     Ignored,
     StartLogin,
     SubmitToken(String),
+    LibraryLoaded(Vec<epic::LibraryItem>),
 }
 
-fn update(state: &mut State, message: Message) {
+fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
-        Message::Ignored => {}
+        Message::Ignored => Task::none(),
         Message::StartLogin => {
             open::that(epic::get_auth_url()).unwrap();
             state.page = Page::PasteToken;
+            Task::none()
         }
         Message::SubmitToken(token) => {
             let auth_data = block_on(epic::authenticate(&state.http_client, &token));
             match auth_data {
                 Ok(auth_data) => {
+                    let task = load_library(&state.http_client, &auth_data);
+
                     save_refresh_token(&auth_data.refresh_token);
                     state.auth_data = Some(auth_data);
                     state.page = Page::Library;
+
+                    task
                 }
                 Err(e) => {
                     log::error!("Failed to authenticate: {}", e);
                     state.page = Page::Login;
+                    Task::none()
                 }
             }
+        }
+        Message::LibraryLoaded(items) => {
+            state.library_items = Some(items);
+            Task::none()
         }
     }
 }
@@ -78,16 +91,36 @@ fn view(state: &State) -> Element<'_, Message> {
     }
 }
 
-fn boot() -> State {
+fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData) -> Task<Message> {
+    let client = http_client.clone();
+    let access_token = auth_data.access_token.clone();
+
+    Task::future(async move {
+        match epic::get_library_items(&client, &access_token).await {
+            Ok(items) => Message::LibraryLoaded(items),
+            Err(e) => {
+                log::error!("Failed to get library items: {}", e);
+                Message::Ignored
+            }
+        }
+    })
+}
+
+fn boot() -> (State, Task<Message>) {
     let mut state = State::default();
     if let Some(token) = load_refresh_token()
         && let Ok(auth_data) = block_on(epic::refresh_token(&state.http_client, &token))
     {
+        let task = load_library(&state.http_client, &auth_data);
+
         save_refresh_token(&auth_data.refresh_token);
         state.auth_data = Some(auth_data);
         state.page = Page::Library;
+
+        (state, task)
+    } else {
+        (state, Task::none())
     }
-    state
 }
 
 #[derive(Serialize, Deserialize)]
