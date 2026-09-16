@@ -1,5 +1,5 @@
 use iced::futures::executor::block_on;
-use iced::{Element, Theme};
+use iced::{Element, Font, Theme};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
@@ -7,11 +7,18 @@ mod decode;
 mod epic;
 mod ui;
 
+const UI_FONT: &[u8] = include_bytes!("../assets/Inter.ttf");
+
 fn main() {
     env_logger::init();
 
+    let mut font = Font::with_name("Inter");
+    font.weight = iced::font::Weight::Medium;
+
     iced::application(boot, update, view)
         .theme(Theme::Custom(ui::get_theme().into()))
+        .font(UI_FONT)
+        .default_font(font)
         .run()
         .unwrap();
 }
