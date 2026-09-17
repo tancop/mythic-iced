@@ -243,7 +243,7 @@ pub async fn get_library_items(
 
         let res = res.bytes().await?;
 
-        log::debug!("library items: {:?}", res);
+        log::debug!("library items: {:?}", str::from_utf8(&res).unwrap());
         let mut file = std::fs::File::create("library_items.json")?;
         file.write_all(&res)?;
 
@@ -344,12 +344,13 @@ const GAME_INFO_URL: &'static str = formatcp!("https://{}/catalog/api/shared", C
 pub async fn get_game_info(
     client: &isahc::HttpClient,
     auth_token: &str,
-    item: &LibraryItem,
+    namespace: &str,
+    catalog_id: &str,
 ) -> anyhow::Result<CatalogItem> {
     let url = format!(
         "{}/namespace/{}/bulk/items?id={}&includeDLCDetails=false\
             &includeMainGameDetails=true&country=US&locale=en",
-        GAME_INFO_URL, item.namespace, &item.catalog_item_id
+        GAME_INFO_URL, namespace, catalog_id
     );
 
     let req = Request::get(url)
