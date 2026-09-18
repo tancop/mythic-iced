@@ -11,6 +11,7 @@ dirs = "7.0.0"
 env_logger = "0.11.11"
 iced = { version = "0.14.0", features = ["image"] }
 iced_graphics = { version = "0.14.0", features = ["geometry", "image", "svg", "web-colors"], default-features = false }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 isahc = { version = "2.0.1", features = ["json"] }
 log = "0.4.34"
 open = "5.4.4"

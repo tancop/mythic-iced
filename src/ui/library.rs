@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use iced::{
     Element, Length, Theme,
     widget::{column, container, image, row, scrollable, text},
@@ -14,18 +12,6 @@ const CELL_WIDTH: f32 = 255.0;
 const CELL_HEIGHT: f32 = 340.0;
 const COLS: usize = 5;
 const SPACING: f32 = 8.0;
-
-const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp"];
-
-fn find_image(dir: &std::path::Path, id: &str) -> Option<PathBuf> {
-    for ext in IMAGE_EXTENSIONS {
-        let path = dir.join(format!("{}.{}", id, ext));
-        if path.exists() {
-            return Some(path);
-        }
-    }
-    None
-}
 
 pub fn view(state: &State) -> Element<'_, Message> {
     let header = text!("Library");
@@ -44,7 +30,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
         for item in chunk {
             let cell: Element<'_, Message> =
                 if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
-                    if let Some(img_path) = find_image(&state.image_dir, &catalog.id) {
+                    let img_path = state.image_dir.join(format!("{}.jpg", catalog.id));
+                    if img_path.exists() {
                         let handle = iced::widget::image::Handle::from_path(img_path);
                         let img = image(handle)
                             .width(Length::Fixed(CELL_WIDTH))

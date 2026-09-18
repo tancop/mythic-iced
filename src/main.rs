@@ -126,14 +126,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             state.catalog_items.insert(id.clone(), info.clone());
 
             if let Some(url) = image_url {
-                let ext = url
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or("png")
-                    .split('?')
-                    .next()
-                    .unwrap_or("png");
-                let image_path = state.image_dir.join(format!("{}.{}", info.id, ext));
+                let image_path = state.image_dir.join(format!("{}.jpg", info.id));
 
                 if image_path.exists() {
                     log::debug!("Image already cached: {}", image_path.display());
@@ -143,8 +136,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                     let mut res = client.get_async(&url).await.ok();
                     if let Some(ref mut res) = res {
                         if let Ok(bytes) = res.bytes().await {
-                            let _ = std::fs::write(&image_path, &bytes);
-                            log::debug!("Saved image: {}", image_path.display());
+                            let _ = resize_and_save(&bytes, &image_path);
                         }
                     }
                     Message::ImageDownloaded(id)
@@ -206,6 +198,21 @@ fn image_dir() -> PathBuf {
     let dir = dirs::cache_dir().unwrap().join("mythic").join("images");
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+const THUMB_WIDTH: u32 = 255;
+const THUMB_HEIGHT: u32 = 340;
+
+fn resize_and_save(bytes: &[u8], path: &std::path::Path) -> anyhow::Result<()> {
+    let img = image::load_from_memory(bytes)?;
+    let resized = img.resize(
+        THUMB_WIDTH,
+        THUMB_HEIGHT,
+        image::imageops::FilterType::Lanczos3,
+    );
+    resized.write_to(&mut std::fs::File::create(path)?, image::ImageFormat::Jpeg)?;
+    log::debug!("Resized and saved: {}", path.display());
+    Ok(())
 }
 
 fn load_refresh_token() -> Option<String> {

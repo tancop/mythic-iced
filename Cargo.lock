@@ -2665,6 +2665,7 @@ dependencies = [
  "env_logger",
  "iced",
  "iced_graphics",
+ "image",
  "isahc",
  "log",
  "open",
