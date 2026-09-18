@@ -123,26 +123,35 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             let client = state.http_client.clone();
             let id = info.id.clone();
 
-            state.catalog_items.insert(id.clone(), info.clone());
+            if let Some(raw_url) = image_url {
+                state.catalog_items.insert(id.clone(), info);
 
-            if let Some(url) = image_url {
-                let image_path = state.image_dir.join(format!("{}.jpg", info.id));
+                let image_path = state.image_dir.join(format!("{}.jpg", id));
 
                 if image_path.exists() {
                     log::debug!("Image already cached: {}", image_path.display());
                     return Task::none();
                 }
+
+                let encoded_url = match url::Url::parse(&raw_url) {
+                    Ok(parsed) => parsed.to_string(),
+                    Err(_) => raw_url,
+                };
+
                 Task::future(async move {
-                    let mut res = client.get_async(&url).await.ok();
+                    let mut res = client.get_async(&encoded_url).await.ok();
                     if let Some(ref mut res) = res {
                         if let Ok(bytes) = res.bytes().await {
-                            let _ = resize_and_save(&bytes, &image_path);
+                            if let Err(e) = resize_and_save(&bytes, &image_path) {
+                                log::error!("Failed to process image for {}: {}", id, e);
+                            }
                         }
                     }
                     Message::ImageDownloaded(id)
                 })
             } else {
                 log::warn!("No images found for {}", &info.title);
+                state.catalog_items.insert(id.clone(), info);
                 Task::none()
             }
         }

@@ -30,7 +30,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
         for item in chunk {
             let cell: Element<'_, Message> =
                 if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
-                    let img_path = state.image_dir.join(format!("{}.jpg", catalog.id));
+                    let jpg = state.image_dir.join(format!("{}.jpg", catalog.id));
+                    let png = state.image_dir.join(format!("{}.png", catalog.id));
+                    let img_path = if jpg.exists() { jpg } else { png };
                     if img_path.exists() {
                         let handle = iced::widget::image::Handle::from_path(img_path);
                         let img = image(handle)

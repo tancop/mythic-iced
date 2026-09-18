@@ -2674,6 +2674,7 @@ dependencies = [
  "serde_url_params",
  "smart-default",
  "toml",
+ "url",
 ]
 
 [[package]]
