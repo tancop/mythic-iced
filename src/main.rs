@@ -57,13 +57,13 @@ enum Message {
     SubmitToken(String),
     LibraryLoaded(Vec<epic::LibraryItem>),
     GameInfoLoaded(epic::CatalogItem),
-    ImageDownloaded(String),
+    ImageDownloaded,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
         Message::Ignored => Task::none(),
-        Message::ImageDownloaded(_) => Task::none(),
+        Message::ImageDownloaded => Task::none(),
         Message::StartLogin => {
             open::that(epic::get_auth_url()).unwrap();
             state.page = Page::PasteToken;
@@ -147,7 +147,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                             }
                         }
                     }
-                    Message::ImageDownloaded(id)
+                    Message::ImageDownloaded
                 })
             } else {
                 log::warn!("No images found for {}", &info.title);
