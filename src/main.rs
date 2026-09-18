@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use iced::futures::executor::block_on;
 use iced::{Element, Font, Task, Theme};
 use serde::{Deserialize, Serialize};
@@ -47,6 +49,7 @@ enum Message {
     StartLogin,
     SubmitToken(String),
     LibraryLoaded(Vec<epic::LibraryItem>),
+    GameInfoLoaded(epic::CatalogItem),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -77,7 +80,29 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::LibraryLoaded(items) => {
+            let access_token = Arc::new(state.auth_data.as_ref().unwrap().access_token.clone());
+            let task = Task::batch(items.iter().map(|item| {
+                let client = state.http_client.clone();
+                let access_token = access_token.clone();
+                let namespace = item.namespace.clone();
+                let catalog_id = item.catalog_item_id.clone();
+
+                Task::future(async move {
+                    match epic::get_game_info(&client, &access_token, &namespace, &catalog_id).await
+                    {
+                        Ok(info) => Message::GameInfoLoaded(info),
+                        Err(e) => {
+                            log::error!("Failed to get game info: {}", e);
+                            Message::Ignored
+                        }
+                    }
+                })
+            }));
             state.library_items = Some(items);
+            task
+        }
+        Message::GameInfoLoaded(info) => {
+            log::info!("Loaded game: {}", &info.title);
             Task::none()
         }
     }
