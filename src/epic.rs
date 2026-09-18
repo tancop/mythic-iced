@@ -7,7 +7,7 @@ use isahc::{
     http,
 };
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 
 use crate::decode;
 
@@ -209,8 +209,8 @@ struct LibraryResponse {
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryItem {
-    pub namespace: String,
-    pub catalog_item_id: String,
+    pub namespace: Arc<String>,
+    pub catalog_item_id: Arc<String>,
     pub product_id: String,
     // codename
     pub app_name: String,
