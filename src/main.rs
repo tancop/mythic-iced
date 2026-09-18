@@ -57,11 +57,13 @@ enum Message {
     SubmitToken(String),
     LibraryLoaded(Vec<epic::LibraryItem>),
     GameInfoLoaded(epic::CatalogItem),
+    ImageDownloaded(String),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
         Message::Ignored => Task::none(),
+        Message::ImageDownloaded(_) => Task::none(),
         Message::StartLogin => {
             open::that(epic::get_auth_url()).unwrap();
             state.page = Page::PasteToken;
@@ -118,13 +120,21 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 .or_else(|| info.key_images.first())
                 .map(|img| img.url.clone());
 
-            let image_path = state.image_dir.join(format!("{}.png", info.id));
             let client = state.http_client.clone();
             let id = info.id.clone();
 
             state.catalog_items.insert(id.clone(), info.clone());
 
             if let Some(url) = image_url {
+                let ext = url
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or("png")
+                    .split('?')
+                    .next()
+                    .unwrap_or("png");
+                let image_path = state.image_dir.join(format!("{}.{}", info.id, ext));
+
                 if image_path.exists() {
                     log::debug!("Image already cached: {}", image_path.display());
                     return Task::none();
@@ -137,7 +147,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                             log::debug!("Saved image: {}", image_path.display());
                         }
                     }
-                    Message::Ignored
+                    Message::ImageDownloaded(id)
                 })
             } else {
                 log::warn!("No images found for {}", &info.title);
