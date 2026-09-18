@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use iced::futures::executor::block_on;
 use iced::{Element, Font, Task, Theme};
+use isahc::AsyncReadResponseExt;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 
@@ -35,6 +38,10 @@ pub struct State {
     pub page: Page,
     pub exchange_code: String,
     pub library_items: Option<Vec<epic::LibraryItem>>,
+    #[default(HashMap::new())]
+    pub catalog_items: HashMap<String, epic::CatalogItem>,
+    #[default(image_dir())]
+    pub image_dir: PathBuf,
 }
 
 pub enum Page {
@@ -103,7 +110,39 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::GameInfoLoaded(info) => {
             log::info!("Loaded game: {}", &info.title);
-            Task::none()
+
+            let image_url = info
+                .key_images
+                .iter()
+                .find(|img| img.image_type == "DieselGameBoxTall")
+                .or_else(|| info.key_images.first())
+                .map(|img| img.url.clone());
+
+            let image_path = state.image_dir.join(format!("{}.png", info.id));
+            let client = state.http_client.clone();
+            let id = info.id.clone();
+
+            state.catalog_items.insert(id.clone(), info.clone());
+
+            if let Some(url) = image_url {
+                if image_path.exists() {
+                    log::debug!("Image already cached: {}", image_path.display());
+                    return Task::none();
+                }
+                Task::future(async move {
+                    let mut res = client.get_async(&url).await.ok();
+                    if let Some(ref mut res) = res {
+                        if let Ok(bytes) = res.bytes().await {
+                            let _ = std::fs::write(&image_path, &bytes);
+                            log::debug!("Saved image: {}", image_path.display());
+                        }
+                    }
+                    Message::Ignored
+                })
+            } else {
+                log::warn!("No images found for {}", &info.title);
+                Task::none()
+            }
         }
     }
 }
@@ -151,6 +190,12 @@ fn boot() -> (State, Task<Message>) {
 #[derive(Serialize, Deserialize)]
 struct TokenCache {
     refresh_token: String,
+}
+
+fn image_dir() -> PathBuf {
+    let dir = dirs::cache_dir().unwrap().join("mythic").join("images");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 fn load_refresh_token() -> Option<String> {
