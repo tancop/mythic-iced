@@ -188,6 +188,9 @@ fn boot() -> (State, Task<Message>) {
     {
         let task = load_library(&state.http_client, &auth_data);
 
+        println!("Welcome, {}", &auth_data.display_name);
+        println!("Using access token: {}", &auth_data.access_token);
+
         save_refresh_token(&auth_data.refresh_token);
         state.auth_data = Some(auth_data);
         state.page = Page::Library;
