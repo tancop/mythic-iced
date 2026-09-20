@@ -191,7 +191,7 @@ const GET_LIBRARY_URL: &'static str =
     formatcp!("https://{}/library/api/public/items", LIBRARY_HOST);
 
 const GET_LIBRARY_WITH_METADATA_URL: &'static str =
-    formatcp!("{}?include_metadata=true", GET_LIBRARY_URL);
+    formatcp!("{}?includeMetadata=true", GET_LIBRARY_URL);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
