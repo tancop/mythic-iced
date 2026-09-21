@@ -3,7 +3,6 @@ use iced::{
     widget::{column, container, image, row, scrollable, text},
 };
 
-// separate line to stop rustfmt merging into function import
 use iced::widget::container::Style;
 
 use crate::{Message, State};
@@ -30,11 +29,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
         for item in chunk {
             let cell: Element<'_, Message> =
                 if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
-                    let jpg = state.image_dir.join(format!("{}.jpg", catalog.id));
-                    let png = state.image_dir.join(format!("{}.png", catalog.id));
-                    let img_path = if jpg.exists() { jpg } else { png };
-                    if img_path.exists() {
-                        let handle = iced::widget::image::Handle::from_path(img_path);
+                    if let Some(bytes) = state.image_library.get(&catalog.id) {
+                        let handle =
+                            iced::widget::image::Handle::from_bytes(bytes.to_vec());
                         let img = image(handle)
                             .width(Length::Fixed(CELL_WIDTH))
                             .height(Length::Fixed(CELL_HEIGHT))
@@ -53,7 +50,6 @@ pub fn view(state: &State) -> Element<'_, Message> {
             cells.push(cell);
         }
 
-        // pad incomplete rows
         while cells.len() < COLS {
             cells.push(
                 container(text!(""))

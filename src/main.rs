@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use iced::futures::executor::block_on;
 use iced::{Element, Font, Task, Theme};
@@ -9,6 +10,7 @@ use smart_default::SmartDefault;
 
 mod decode;
 mod epic;
+mod images;
 mod ui;
 
 const UI_FONT: &[u8] = include_bytes!("../assets/Inter.ttf");
@@ -39,8 +41,8 @@ pub struct State {
     pub library_items: Option<Vec<epic::LibraryItem>>,
     #[default(HashMap::new())]
     pub catalog_items: HashMap<String, epic::CatalogItem>,
-    #[default(image_dir())]
-    pub image_dir: PathBuf,
+    #[default(images::ImageLibrary::empty())]
+    pub image_library: images::ImageLibrary,
     #[default(VecDeque::new())]
     pub pending_items: VecDeque<epic::LibraryItem>,
 }
@@ -60,13 +62,17 @@ enum Message {
     SubmitToken(String),
     LibraryLoaded(Vec<epic::LibraryItem>),
     GameInfoLoaded(epic::CatalogItem),
-    ImageDownloaded,
+    ImageDownloaded(String, Arc<Vec<u8>>),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
         Message::Ignored => Task::none(),
-        Message::ImageDownloaded => Task::none(),
+        Message::ImageDownloaded(id, bytes) => {
+            state.image_library.insert(id, (*bytes).clone());
+            let _ = state.image_library.save(&image_library_path());
+            Task::none()
+        }
         Message::StartLogin => {
             open::that(epic::get_auth_url()).unwrap();
             state.page = Page::PasteToken;
@@ -117,9 +123,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             if let Some(raw_url) = image_url {
                 state.catalog_items.insert(id.clone(), info);
 
-                let image_path = state.image_dir.join(format!("{}.jpg", id));
-
-                if !image_path.exists() {
+                if state.image_library.get(&id).is_some() {
+                    if let Some(next) = state.pending_items.pop_front() {
+                        fetch_game_info(state, &next)
+                    } else {
+                        Task::none()
+                    }
+                } else {
                     let encoded_url = match url::Url::parse(&raw_url) {
                         Ok(parsed) => parsed.to_string(),
                         Err(_) => raw_url,
@@ -129,27 +139,25 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                         let mut res = client.get_async(&encoded_url).await.ok();
                         if let Some(ref mut res) = res {
                             if let Ok(bytes) = res.bytes().await {
-                                if let Err(e) = resize_and_save(&bytes, &image_path) {
-                                    log::error!("Failed to process image for {}: {}", id, e);
+                                match resize_image(&bytes) {
+                                    Ok(processed) => {
+                                        let bytes = Arc::new(processed);
+                                        return Message::ImageDownloaded(id, bytes);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to process image for {}: {}", id, e);
+                                    }
                                 }
                             }
                         }
-                        Message::ImageDownloaded
+                        Message::ImageDownloaded(id, Arc::new(Vec::new()))
                     });
 
-                    // pop next from queue
                     if let Some(next) = state.pending_items.pop_front() {
                         let fetch_task = fetch_game_info(state, &next);
                         Task::batch([download_task, fetch_task])
                     } else {
                         download_task
-                    }
-                } else {
-                    log::debug!("Image already cached: {}", image_path.display());
-                    if let Some(next) = state.pending_items.pop_front() {
-                        fetch_game_info(state, &next)
-                    } else {
-                        Task::none()
                     }
                 }
             } else {
@@ -207,13 +215,14 @@ fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData) -> 
 
 fn boot() -> (State, Task<Message>) {
     let mut state = State::default();
+
+    let lib_path = image_library_path();
+    state.image_library = images::ImageLibrary::load(&lib_path);
+
     if let Some(token) = load_refresh_token()
         && let Ok(auth_data) = block_on(epic::refresh_token(&state.http_client, &token))
     {
         let task = load_library(&state.http_client, &auth_data);
-
-        println!("Welcome, {}", &auth_data.display_name);
-        println!("Using access token: {}", &auth_data.access_token);
 
         save_refresh_token(&auth_data.refresh_token);
         state.auth_data = Some(auth_data);
@@ -230,25 +239,23 @@ struct TokenCache {
     refresh_token: String,
 }
 
-fn image_dir() -> PathBuf {
-    let dir = dirs::cache_dir().unwrap().join("mythic").join("images");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+fn image_library_path() -> PathBuf {
+    dirs::cache_dir().unwrap().join("mythic").join("images.db")
 }
 
 const THUMB_WIDTH: u32 = 255;
 const THUMB_HEIGHT: u32 = 340;
 
-fn resize_and_save(bytes: &[u8], path: &std::path::Path) -> anyhow::Result<()> {
+fn resize_image(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
     let img = image::load_from_memory(bytes)?;
     let resized = img.resize(
         THUMB_WIDTH,
         THUMB_HEIGHT,
         image::imageops::FilterType::Lanczos3,
     );
-    resized.write_to(&mut std::fs::File::create(path)?, image::ImageFormat::Jpeg)?;
-    log::debug!("Resized and saved: {}", path.display());
-    Ok(())
+    let mut buf = std::io::Cursor::new(Vec::new());
+    resized.write_to(&mut buf, image::ImageFormat::Jpeg)?;
+    Ok(buf.into_inner())
 }
 
 fn load_refresh_token() -> Option<String> {

@@ -21,3 +21,4 @@ serde_url_params = "0.2.1"
 smart-default = "0.7.1"
 toml = "1.1.6"
 url = "2"
+rkyv = { version = "0.8", default-features = false, features = ["std", "alloc", "hashbrown-0_14"] }
