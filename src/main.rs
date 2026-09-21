@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use iced::futures::executor::block_on;
 use iced::{Element, Font, Task, Theme};
@@ -42,7 +41,11 @@ pub struct State {
     pub catalog_items: HashMap<String, epic::CatalogItem>,
     #[default(image_dir())]
     pub image_dir: PathBuf,
+    #[default(VecDeque::new())]
+    pub pending_items: VecDeque<epic::LibraryItem>,
 }
+
+const CONCURRENT_LIMIT: usize = 20;
 
 pub enum Page {
     Library,
@@ -89,25 +92,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::LibraryLoaded(items) => {
-            let access_token = Arc::new(state.auth_data.as_ref().unwrap().access_token.clone());
-            let task = Task::batch(items.iter().map(|item| {
-                let client = state.http_client.clone();
-                let access_token = access_token.clone();
-                let namespace = item.namespace.clone();
-                let catalog_id = item.catalog_item_id.clone();
+            state.library_items = Some(items.clone());
 
-                Task::future(async move {
-                    match epic::get_game_info(&client, &access_token, &namespace, &catalog_id).await
-                    {
-                        Ok(info) => Message::GameInfoLoaded(info),
-                        Err(e) => {
-                            log::error!("Failed to get game info: {}", e);
-                            Message::Ignored
-                        }
-                    }
-                })
-            }));
-            state.library_items = Some(items);
+            let mut queue: VecDeque<_> = items.into_iter().collect();
+            let initial: Vec<_> = queue.drain(..CONCURRENT_LIMIT.min(queue.len())).collect();
+
+            let task = Task::batch(initial.iter().map(|item| fetch_game_info(state, item)));
+            state.pending_items = queue;
             task
         }
         Message::GameInfoLoaded(info) => {
@@ -128,31 +119,47 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
 
                 let image_path = state.image_dir.join(format!("{}.jpg", id));
 
-                if image_path.exists() {
-                    log::debug!("Image already cached: {}", image_path.display());
-                    return Task::none();
-                }
+                if !image_path.exists() {
+                    let encoded_url = match url::Url::parse(&raw_url) {
+                        Ok(parsed) => parsed.to_string(),
+                        Err(_) => raw_url,
+                    };
 
-                let encoded_url = match url::Url::parse(&raw_url) {
-                    Ok(parsed) => parsed.to_string(),
-                    Err(_) => raw_url,
-                };
-
-                Task::future(async move {
-                    let mut res = client.get_async(&encoded_url).await.ok();
-                    if let Some(ref mut res) = res {
-                        if let Ok(bytes) = res.bytes().await {
-                            if let Err(e) = resize_and_save(&bytes, &image_path) {
-                                log::error!("Failed to process image for {}: {}", id, e);
+                    let download_task = Task::future(async move {
+                        let mut res = client.get_async(&encoded_url).await.ok();
+                        if let Some(ref mut res) = res {
+                            if let Ok(bytes) = res.bytes().await {
+                                if let Err(e) = resize_and_save(&bytes, &image_path) {
+                                    log::error!("Failed to process image for {}: {}", id, e);
+                                }
                             }
                         }
+                        Message::ImageDownloaded
+                    });
+
+                    // pop next from queue
+                    if let Some(next) = state.pending_items.pop_front() {
+                        let fetch_task = fetch_game_info(state, &next);
+                        Task::batch([download_task, fetch_task])
+                    } else {
+                        download_task
                     }
-                    Message::ImageDownloaded
-                })
+                } else {
+                    log::debug!("Image already cached: {}", image_path.display());
+                    if let Some(next) = state.pending_items.pop_front() {
+                        fetch_game_info(state, &next)
+                    } else {
+                        Task::none()
+                    }
+                }
             } else {
                 log::warn!("No images found for {}", &info.title);
                 state.catalog_items.insert(id.clone(), info);
-                Task::none()
+                if let Some(next) = state.pending_items.pop_front() {
+                    fetch_game_info(state, &next)
+                } else {
+                    Task::none()
+                }
             }
         }
     }
@@ -164,6 +171,23 @@ fn view(state: &State) -> Element<'_, Message> {
         Page::Login => ui::login::view(state),
         Page::PasteToken => ui::login::view_paste_token(state),
     }
+}
+
+fn fetch_game_info(state: &State, item: &epic::LibraryItem) -> Task<Message> {
+    let client = state.http_client.clone();
+    let access_token = state.auth_data.as_ref().unwrap().access_token.clone();
+    let namespace = item.namespace.clone();
+    let catalog_id = item.catalog_item_id.clone();
+
+    Task::future(async move {
+        match epic::get_game_info(&client, &access_token, &namespace, &catalog_id).await {
+            Ok(info) => Message::GameInfoLoaded(info),
+            Err(e) => {
+                log::error!("Failed to get game info: {}", e);
+                Message::Ignored
+            }
+        }
+    })
 }
 
 fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData) -> Task<Message> {
