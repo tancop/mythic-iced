@@ -45,9 +45,20 @@ pub struct State {
     pub image_library: images::ImageLibrary,
     #[default(VecDeque::new())]
     pub pending_items: VecDeque<epic::LibraryItem>,
+    #[default(0.0)]
+    pub scroll_offset: f32,
+    #[default(HashMap::new())]
+    pub decoded_images: HashMap<String, (u32, u32, Arc<Vec<u8>>)>,
 }
 
 const CONCURRENT_LIMIT: usize = 20;
+
+const CELL_HEIGHT: f32 = 340.0;
+const COLS: usize = 5;
+const SPACING: f32 = 8.0;
+const ROW_PITCH: f32 = CELL_HEIGHT + SPACING;
+const BUFFER_ROWS: usize = 5;
+const VIEWPORT_HEIGHT: f32 = 800.0;
 
 pub enum Page {
     Library,
@@ -63,6 +74,8 @@ enum Message {
     LibraryLoaded(Vec<epic::LibraryItem>),
     GameInfoLoaded(epic::CatalogItem),
     ImageDownloaded(String, Arc<Vec<u8>>),
+    Scrolled(f32),
+    DecodedImage(String, u32, u32, Arc<Vec<u8>>),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -71,6 +84,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::ImageDownloaded(id, bytes) => {
             state.image_library.insert(id, (*bytes).clone());
             let _ = state.image_library.save(&image_library_path());
+            Task::none()
+        }
+        Message::Scrolled(offset) => {
+            state.scroll_offset = offset;
+            decode_visible(state)
+        }
+        Message::DecodedImage(id, w, h, pixels) => {
+            state.decoded_images.insert(id, (w, h, pixels));
             Task::none()
         }
         Message::StartLogin => {
@@ -103,9 +124,10 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             let mut queue: VecDeque<_> = items.into_iter().collect();
             let initial: Vec<_> = queue.drain(..CONCURRENT_LIMIT.min(queue.len())).collect();
 
-            let task = Task::batch(initial.iter().map(|item| fetch_game_info(state, item)));
+            let fetch_task = Task::batch(initial.iter().map(|item| fetch_game_info(state, item)));
             state.pending_items = queue;
-            task
+            let decode_task = decode_visible(state);
+            Task::batch([fetch_task, decode_task])
         }
         Message::GameInfoLoaded(info) => {
             log::info!("Loaded game: {}", &info.title);
@@ -196,6 +218,54 @@ fn fetch_game_info(state: &State, item: &epic::LibraryItem) -> Task<Message> {
             }
         }
     })
+}
+
+fn decode_visible(state: &State) -> Task<Message> {
+    let Some(items) = &state.library_items else {
+        return Task::none();
+    };
+
+    let total_rows = items.len() / COLS + (items.len() % COLS != 0) as usize;
+    let first_visible_row = (state.scroll_offset / ROW_PITCH) as usize;
+    let visible_rows = (VIEWPORT_HEIGHT / ROW_PITCH) as usize + 1;
+    let lo = first_visible_row.saturating_sub(BUFFER_ROWS);
+    let hi = (first_visible_row + visible_rows + BUFFER_ROWS).min(total_rows);
+
+    let mut to_decode: Vec<(String, Vec<u8>)> = Vec::new();
+
+    for item in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
+        for item in item {
+            if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
+                if !state.decoded_images.contains_key(&catalog.id) {
+                    if let Some(bytes) = state.image_library.get(&catalog.id) {
+                        to_decode.push((catalog.id.clone(), bytes.to_vec()));
+                    }
+                }
+            }
+        }
+    }
+
+    let tasks: Vec<_> = to_decode
+        .into_iter()
+        .map(|(id, bytes)| Task::future(async move { decode_image(id, bytes).await }))
+        .collect();
+
+    Task::batch(tasks)
+}
+
+async fn decode_image(id: String, bytes: Vec<u8>) -> Message {
+    match image::load_from_memory(&bytes) {
+        Ok(img) => {
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            let pixels = Arc::new(rgba.into_raw());
+            Message::DecodedImage(id, w, h, pixels)
+        }
+        Err(e) => {
+            log::error!("Failed to decode image {}: {}", id, e);
+            Message::Ignored
+        }
+    }
 }
 
 fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData) -> Task<Message> {
