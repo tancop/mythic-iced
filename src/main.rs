@@ -236,8 +236,8 @@ fn visible_range(state: &State) -> (usize, usize) {
         return (0, 0);
     };
     let pitch = ui::library::row_pitch(state.viewport_width);
-    let total_rows =
-        items.len() / ui::library::COLS + (items.len() % ui::library::COLS != 0) as usize;
+    let cols = ui::library::cols_for_width(state.viewport_width);
+    let total_rows = items.len() / cols + (items.len() % cols != 0) as usize;
     let first_visible_row = (state.scroll_offset / pitch) as usize;
     let visible_rows = (state.viewport_height / pitch) as usize + 1;
     let lo = first_visible_row.saturating_sub(ui::library::BUFFER_ROWS);
@@ -254,7 +254,7 @@ fn decode_visible(state: &mut State) -> Task<Message> {
     let mut to_decode: Vec<(String, Vec<u8>)> = Vec::new();
 
     for chunk in items
-        .chunks(ui::library::COLS)
+        .chunks(ui::library::cols_for_width(state.viewport_width))
         .skip(lo)
         .take(hi.saturating_sub(lo))
     {
@@ -288,7 +288,7 @@ fn evict_stale(state: &mut State) {
 
     let mut visible_ids = HashSet::new();
     for chunk in items
-        .chunks(ui::library::COLS)
+        .chunks(ui::library::cols_for_width(state.viewport_width))
         .skip(lo)
         .take(hi.saturating_sub(lo))
     {

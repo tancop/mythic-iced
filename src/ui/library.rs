@@ -7,15 +7,25 @@ use iced::widget::container::Style;
 
 use crate::{Message, State};
 
-pub const COLS: usize = 5;
+pub const MIN_COLS: usize = 5;
+pub const MAX_COLS: usize = 7;
 pub const SPACING: f32 = 8.0;
 pub const BUFFER_ROWS: usize = 5;
+
+// Approximate cell width the column count derives from: 5 columns at default
+// window size, up to 7 when fullscreen.
+const TARGET_CELL_WIDTH: f32 = 200.0;
+
+pub fn cols_for_width(viewport_width: f32) -> usize {
+    ((viewport_width / TARGET_CELL_WIDTH).round() as usize).clamp(MIN_COLS, MAX_COLS)
+}
 
 // Height / width of a cell (matches the 255x340 thumbnails).
 pub const CELL_ASPECT: f32 = 340.0 / 255.0;
 
 pub fn cell_width(viewport_width: f32) -> f32 {
-    ((viewport_width - (COLS - 1) as f32 * SPACING) / COLS as f32).max(1.0)
+    let cols = cols_for_width(viewport_width);
+    ((viewport_width - (cols - 1) as f32 * SPACING) / cols as f32).max(1.0)
 }
 
 pub fn cell_height(viewport_width: f32) -> f32 {
@@ -35,7 +45,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .into();
     };
 
-    let total_rows = items.len() / COLS + (items.len() % COLS != 0) as usize;
+    let cols = cols_for_width(state.viewport_width);
+    let total_rows = items.len() / cols + (items.len() % cols != 0) as usize;
 
     let pitch = row_pitch(state.viewport_width);
     let cell_w = cell_width(state.viewport_width);
@@ -48,7 +59,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     let mut visible: Vec<Element<'_, Message>> = Vec::new();
 
-    for chunk in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
+    for chunk in items.chunks(cols).skip(lo).take(hi.saturating_sub(lo)) {
         let mut cells: Vec<Element<'_, Message>> = Vec::new();
 
         for item in chunk {
@@ -76,7 +87,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             cells.push(cell);
         }
 
-        while cells.len() < COLS {
+        while cells.len() < cols {
             cells.push(
                 container(text!(""))
                     .width(Length::Fixed(cell_w))
