@@ -5,7 +5,7 @@ use iced::{
 
 use iced::widget::container::Style;
 
-use crate::{Message, State};
+use crate::{Message, State, ui::TextWidgetExt};
 
 pub const MIN_COLS: usize = 5;
 pub const MAX_COLS: usize = 7;
@@ -72,16 +72,16 @@ pub fn view(state: &State) -> Element<'_, Message> {
                         .width(Length::Fill)
                         .height(Length::Fill)
                         .content_fit(iced::ContentFit::Cover);
-                    container(img)
+                    container(column![img, text!("{}", item.sandbox_name).size(14).bold()])
                         .width(Length::Fixed(cell_w))
                         .height(Length::Fixed(cell_h))
                         .clip(true)
                         .into()
                 } else {
-                    placeholder_cell(&item.sandbox_name, cell_w, cell_h)
+                    placeholder_cell(cell_w, cell_h)
                 }
             } else {
-                placeholder_cell(&item.sandbox_name, cell_w, cell_h)
+                placeholder_cell(cell_w, cell_h)
             };
 
             cells.push(cell);
@@ -133,8 +133,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
     .into()
 }
 
-fn placeholder_cell(name: &str, cell_w: f32, cell_h: f32) -> Element<'_, Message> {
-    container(text!("{}", name).size(14).width(Length::Fill).center())
+fn placeholder_cell(cell_w: f32, cell_h: f32) -> Element<'static, Message> {
+    container("")
         .style(|theme: &Theme| Style::default().background(theme.palette().primary))
         .width(Length::Fixed(cell_w))
         .height(Length::Fixed(cell_h))

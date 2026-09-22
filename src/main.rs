@@ -13,19 +13,28 @@ mod epic;
 mod images;
 mod ui;
 
-const UI_FONT: &[u8] = include_bytes!("../assets/Inter.ttf");
+const FONT_FILE: &[u8] = include_bytes!("../assets/Inter.ttf");
+
+pub const UI_FONT: Font = {
+    let mut font = Font::with_name("Inter");
+    font.weight = iced::font::Weight::Medium;
+    font
+};
+
+pub const BOLD_FONT: Font = {
+    let mut font = Font::with_name("Inter");
+    font.weight = iced::font::Weight::Bold;
+    font
+};
 
 fn main() {
     env_logger::init();
 
-    let mut font = Font::with_name("Inter");
-    font.weight = iced::font::Weight::Medium;
-
     iced::application(boot, update, view)
         .title("Mythic")
         .theme(Theme::Custom(ui::get_theme().into()))
-        .font(UI_FONT)
-        .default_font(font)
+        .font(FONT_FILE)
+        .default_font(UI_FONT)
         .run()
         .unwrap();
 }
