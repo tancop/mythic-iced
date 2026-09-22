@@ -134,7 +134,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
 }
 
 fn placeholder_cell(name: &str, cell_w: f32, cell_h: f32) -> Element<'_, Message> {
-    container(text!("{}", name).size(14))
+    container(text!("{}", name).size(14).width(Length::Fill).center())
         .style(|theme: &Theme| Style::default().background(theme.palette().primary))
         .width(Length::Fixed(cell_w))
         .height(Length::Fixed(cell_h))
