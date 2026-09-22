@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -49,6 +49,8 @@ pub struct State {
     pub scroll_offset: f32,
     #[default(HashMap::new())]
     pub decoded_images: HashMap<String, (u32, u32, Arc<Vec<u8>>)>,
+    #[default(HashSet::new())]
+    pub inflight_decodes: HashSet<String>,
 }
 
 const CONCURRENT_LIMIT: usize = 20;
@@ -84,13 +86,15 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::ImageDownloaded(id, bytes) => {
             state.image_library.insert(id, (*bytes).clone());
             let _ = state.image_library.save(&image_library_path());
-            Task::none()
+            decode_visible(state)
         }
         Message::Scrolled(offset) => {
             state.scroll_offset = offset;
+            evict_stale(state);
             decode_visible(state)
         }
         Message::DecodedImage(id, w, h, pixels) => {
+            state.inflight_decodes.remove(&id);
             state.decoded_images.insert(id, (w, h, pixels));
             Task::none()
         }
@@ -220,23 +224,32 @@ fn fetch_game_info(state: &State, item: &epic::LibraryItem) -> Task<Message> {
     })
 }
 
-fn decode_visible(state: &State) -> Task<Message> {
+fn visible_range(state: &State) -> (usize, usize) {
     let Some(items) = &state.library_items else {
-        return Task::none();
+        return (0, 0);
     };
-
     let total_rows = items.len() / COLS + (items.len() % COLS != 0) as usize;
     let first_visible_row = (state.scroll_offset / ROW_PITCH) as usize;
     let visible_rows = (VIEWPORT_HEIGHT / ROW_PITCH) as usize + 1;
     let lo = first_visible_row.saturating_sub(BUFFER_ROWS);
     let hi = (first_visible_row + visible_rows + BUFFER_ROWS).min(total_rows);
+    (lo, hi)
+}
 
+fn decode_visible(state: &mut State) -> Task<Message> {
+    let Some(items) = &state.library_items else {
+        return Task::none();
+    };
+
+    let (lo, hi) = visible_range(state);
     let mut to_decode: Vec<(String, Vec<u8>)> = Vec::new();
 
-    for item in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
-        for item in item {
+    for chunk in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
+        for item in chunk {
             if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
-                if !state.decoded_images.contains_key(&catalog.id) {
+                if !state.decoded_images.contains_key(&catalog.id)
+                    && state.inflight_decodes.insert(catalog.id.clone())
+                {
                     if let Some(bytes) = state.image_library.get(&catalog.id) {
                         to_decode.push((catalog.id.clone(), bytes.to_vec()));
                     }
@@ -251,6 +264,27 @@ fn decode_visible(state: &State) -> Task<Message> {
         .collect();
 
     Task::batch(tasks)
+}
+
+fn evict_stale(state: &mut State) {
+    let Some(items) = &state.library_items else {
+        return;
+    };
+
+    let (lo, hi) = visible_range(state);
+
+    let mut visible_ids = HashSet::new();
+    for chunk in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
+        for item in chunk {
+            if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
+                visible_ids.insert(catalog.id.clone());
+            }
+        }
+    }
+
+    state
+        .decoded_images
+        .retain(|id, _| visible_ids.contains(id));
 }
 
 async fn decode_image(id: String, bytes: Vec<u8>) -> Message {

@@ -25,7 +25,6 @@ pub fn view(state: &State) -> Element<'_, Message> {
     };
 
     let total_rows = items.len() / COLS + (items.len() % COLS != 0) as usize;
-    let total_height = total_rows as f32 * ROW_PITCH;
 
     let first_visible_row = (state.scroll_offset / ROW_PITCH) as usize;
     let visible_rows = (VIEWPORT_HEIGHT / ROW_PITCH) as usize + 1;
@@ -78,11 +77,18 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     let grid = column(visible).spacing(SPACING);
 
+    let top_pad = lo as f32 * ROW_PITCH;
+    let bottom_pad = (total_rows.saturating_sub(hi)) as f32 * ROW_PITCH;
+
     container(
         column![
             header,
             scrollable(
-                column![grid, container(text!("")).height(Length::Fixed(total_height))]
+                column![
+                    container(text!("")).height(Length::Fixed(top_pad)),
+                    grid,
+                    container(text!("")).height(Length::Fixed(bottom_pad)),
+                ]
             )
             .height(Length::Fill)
             .on_scroll(|viewport| {
