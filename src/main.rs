@@ -47,6 +47,10 @@ pub struct State {
     pub pending_items: VecDeque<epic::LibraryItem>,
     #[default(0.0)]
     pub scroll_offset: f32,
+    #[default(1024.0)]
+    pub viewport_width: f32,
+    #[default(768.0)]
+    pub viewport_height: f32,
     #[default(HashMap::new())]
     pub decoded_images: HashMap<String, (u32, u32, Arc<Vec<u8>>)>,
     #[default(HashSet::new())]
@@ -54,13 +58,6 @@ pub struct State {
 }
 
 const CONCURRENT_LIMIT: usize = 20;
-
-const CELL_HEIGHT: f32 = 340.0;
-const COLS: usize = 5;
-const SPACING: f32 = 8.0;
-const ROW_PITCH: f32 = CELL_HEIGHT + SPACING;
-const BUFFER_ROWS: usize = 5;
-const VIEWPORT_HEIGHT: f32 = 800.0;
 
 pub enum Page {
     Library,
@@ -76,7 +73,11 @@ enum Message {
     LibraryLoaded(Vec<epic::LibraryItem>),
     GameInfoLoaded(epic::CatalogItem),
     ImageDownloaded(String, Arc<Vec<u8>>),
-    Scrolled(f32),
+    Scrolled {
+        offset_y: f32,
+        width: f32,
+        height: f32,
+    },
     DecodedImage(String, u32, u32, Arc<Vec<u8>>),
 }
 
@@ -88,8 +89,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             let _ = state.image_library.save(&image_library_path());
             decode_visible(state)
         }
-        Message::Scrolled(offset) => {
-            state.scroll_offset = offset;
+        Message::Scrolled {
+            offset_y,
+            width,
+            height,
+        } => {
+            state.scroll_offset = offset_y;
+            state.viewport_width = width;
+            state.viewport_height = height;
             evict_stale(state);
             decode_visible(state)
         }
@@ -228,11 +235,13 @@ fn visible_range(state: &State) -> (usize, usize) {
     let Some(items) = &state.library_items else {
         return (0, 0);
     };
-    let total_rows = items.len() / COLS + (items.len() % COLS != 0) as usize;
-    let first_visible_row = (state.scroll_offset / ROW_PITCH) as usize;
-    let visible_rows = (VIEWPORT_HEIGHT / ROW_PITCH) as usize + 1;
-    let lo = first_visible_row.saturating_sub(BUFFER_ROWS);
-    let hi = (first_visible_row + visible_rows + BUFFER_ROWS).min(total_rows);
+    let pitch = ui::library::row_pitch(state.viewport_width);
+    let total_rows =
+        items.len() / ui::library::COLS + (items.len() % ui::library::COLS != 0) as usize;
+    let first_visible_row = (state.scroll_offset / pitch) as usize;
+    let visible_rows = (state.viewport_height / pitch) as usize + 1;
+    let lo = first_visible_row.saturating_sub(ui::library::BUFFER_ROWS);
+    let hi = (first_visible_row + visible_rows + ui::library::BUFFER_ROWS).min(total_rows);
     (lo, hi)
 }
 
@@ -244,7 +253,11 @@ fn decode_visible(state: &mut State) -> Task<Message> {
     let (lo, hi) = visible_range(state);
     let mut to_decode: Vec<(String, Vec<u8>)> = Vec::new();
 
-    for chunk in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
+    for chunk in items
+        .chunks(ui::library::COLS)
+        .skip(lo)
+        .take(hi.saturating_sub(lo))
+    {
         for item in chunk {
             if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
                 if !state.decoded_images.contains_key(&catalog.id)
@@ -274,7 +287,11 @@ fn evict_stale(state: &mut State) {
     let (lo, hi) = visible_range(state);
 
     let mut visible_ids = HashSet::new();
-    for chunk in items.chunks(COLS).skip(lo).take(hi.saturating_sub(lo)) {
+    for chunk in items
+        .chunks(ui::library::COLS)
+        .skip(lo)
+        .take(hi.saturating_sub(lo))
+    {
         for item in chunk {
             if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
                 visible_ids.insert(catalog.id.clone());
