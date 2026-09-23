@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
