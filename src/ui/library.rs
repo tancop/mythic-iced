@@ -72,7 +72,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
                         .width(Length::Fill)
                         .height(Length::Fill)
                         .content_fit(iced::ContentFit::Cover);
-                    container(column![img, text!("{}", item.sandbox_name).size(14).bold()])
+                    container(column![img, text!("{}", catalog.title).size(14).bold()])
                         .width(Length::Fixed(card_w))
                         .height(Length::Fixed(card_h))
                         .clip(true)

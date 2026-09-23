@@ -212,9 +212,9 @@ pub struct LibraryItem {
     pub namespace: Arc<String>,
     pub catalog_item_id: Arc<String>,
     pub product_id: String,
-    // codename
+    // app ID, or codename for older titles
     pub app_name: String,
-    // display name
+    // internal app name
     pub sandbox_name: String,
     // public/private
     pub sandbox_type: String,
