@@ -218,6 +218,9 @@ pub struct LibraryItem {
     pub sandbox_name: String,
     // public/private
     pub sandbox_type: String,
+    // playable platforms, e.g. ["Windows"] or ["Win32", "Windows"]
+    #[serde(default)]
+    pub platform: Vec<String>,
 }
 
 const IGNORE_NAMESPACES: &[&str] = &[
@@ -249,11 +252,10 @@ pub async fn get_library_items(
 
         let res = serde_json::from_slice::<LibraryResponse>(&res)?;
 
-        result.extend(
-            res.records
-                .into_iter()
-                .filter(|item| !IGNORE_NAMESPACES.contains(&item.namespace.as_str())),
-        );
+        result.extend(res.records.into_iter().filter(|item| {
+            !IGNORE_NAMESPACES.contains(&item.namespace.as_str())
+                && item.platform.iter().any(|p| p == "Windows")
+        }));
 
         if let Some(meta) = res.response_metadata
             && let Some(cursor) = meta.next_cursor
