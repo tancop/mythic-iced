@@ -7,7 +7,7 @@ use isahc::{
     http,
 };
 use serde::{Deserialize, Serialize};
-use std::{io::Write, sync::Arc};
+use std::sync::Arc;
 
 use crate::decode;
 
@@ -247,8 +247,6 @@ pub async fn get_library_items(
         let res = res.bytes().await?;
 
         log::debug!("library items: {:?}", str::from_utf8(&res).unwrap());
-        let mut file = std::fs::File::create("library_items.json")?;
-        file.write_all(&res)?;
 
         let res = serde_json::from_slice::<LibraryResponse>(&res)?;
 
