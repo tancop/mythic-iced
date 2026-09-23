@@ -75,19 +75,33 @@ pub enum Page {
 }
 
 #[derive(Clone, Debug)]
+pub struct DecodedCard {
+    pub id: String,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<Vec<u8>>,
+}
+
+#[derive(Clone, Debug)]
 enum Message {
     Ignored,
     StartLogin,
     SubmitToken(String),
     LibraryLoaded(Vec<epic::LibraryItem>),
     GameInfoLoaded(epic::CatalogItem),
+    // A catalog fetch failed: the item is skipped, but the queue must still
+    // advance or every item behind it would never load.
+    GameInfoFailed,
     ImageDownloaded(String, Arc<Vec<u8>>),
     Scrolled {
         offset_y: f32,
         width: f32,
         height: f32,
     },
-    DecodedImage(String, u32, u32, Arc<Vec<u8>>),
+    ChunkDecoded {
+        decoded: Vec<DecodedCard>,
+        failed: Vec<String>,
+    },
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -109,9 +123,16 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             evict_stale(state);
             decode_visible(state)
         }
-        Message::DecodedImage(id, w, h, pixels) => {
-            state.inflight_decodes.remove(&id);
-            state.decoded_images.insert(id, (w, h, pixels));
+        Message::ChunkDecoded { decoded, failed } => {
+            for id in failed {
+                state.inflight_decodes.remove(&id);
+            }
+            for card in decoded {
+                state.inflight_decodes.remove(&card.id);
+                state
+                    .decoded_images
+                    .insert(card.id, (card.width, card.height, card.pixels));
+            }
             Task::none()
         }
         Message::StartLogin => {
@@ -148,6 +169,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             state.pending_items = queue;
             let decode_task = decode_visible(state);
             Task::batch([fetch_task, decode_task])
+        }
+        Message::GameInfoFailed => {
+            if let Some(next) = state.pending_items.pop_front() {
+                fetch_game_info(state, &next)
+            } else {
+                Task::none()
+            }
         }
         Message::GameInfoLoaded(info) => {
             log::info!("Loaded game: {}", &info.title);
@@ -234,7 +262,7 @@ fn fetch_game_info(state: &State, item: &epic::LibraryItem) -> Task<Message> {
             Ok(info) => Message::GameInfoLoaded(info),
             Err(e) => {
                 log::error!("Failed to get game info: {}", e);
-                Message::Ignored
+                Message::GameInfoFailed
             }
         }
     })
@@ -259,33 +287,45 @@ fn decode_visible(state: &mut State) -> Task<Message> {
         return Task::none();
     };
 
+    let cols = ui::library::cols_for_width(state.viewport_width);
     let (lo, hi) = visible_range(state);
-    let mut to_decode: Vec<(String, Vec<u8>)> = Vec::new();
 
-    for chunk in items
-        .chunks(ui::library::cols_for_width(state.viewport_width))
-        .skip(lo)
-        .take(hi.saturating_sub(lo))
-    {
+    // One task per grid chunk so a whole row swaps in atomically instead of
+    // cards popping in one by one (each completion re-renders the grid).
+    let mut chunks: Vec<Vec<(String, Vec<u8>)>> = Vec::new();
+
+    for chunk in items.chunks(cols).skip(lo).take(hi.saturating_sub(lo)) {
+        let mut pending: Vec<(String, Vec<u8>)> = Vec::new();
         for item in chunk {
-            if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
-                if !state.decoded_images.contains_key(&catalog.id)
-                    && state.inflight_decodes.insert(catalog.id.clone())
-                {
-                    if let Some(bytes) = state.image_library.get(&catalog.id) {
-                        to_decode.push((catalog.id.clone(), bytes.to_vec()));
-                    }
+            let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) else {
+                continue;
+            };
+            if state.decoded_images.contains_key(&catalog.id)
+                || !state.inflight_decodes.insert(catalog.id.clone())
+            {
+                continue;
+            }
+            match state.image_library.get(&catalog.id) {
+                Some(bytes) if !bytes.is_empty() => {
+                    pending.push((catalog.id.clone(), bytes.to_vec()));
+                }
+                _ => {
+                    // Not cached yet (or cached empty): don't wedge, retry on
+                    // the next scroll event.
+                    state.inflight_decodes.remove(&catalog.id);
                 }
             }
         }
+        if !pending.is_empty() {
+            chunks.push(pending);
+        }
     }
 
-    let tasks: Vec<_> = to_decode
-        .into_iter()
-        .map(|(id, bytes)| Task::future(async move { decode_image(id, bytes).await }))
-        .collect();
-
-    Task::batch(tasks)
+    Task::batch(
+        chunks
+            .into_iter()
+            .map(|chunk| Task::future(async move { decode_chunk(chunk).await })),
+    )
 }
 
 fn evict_stale(state: &mut State) {
@@ -313,19 +353,28 @@ fn evict_stale(state: &mut State) {
         .retain(|id, _| visible_ids.contains(id));
 }
 
-async fn decode_image(id: String, bytes: Vec<u8>) -> Message {
-    match image::load_from_memory(&bytes) {
-        Ok(img) => {
-            let rgba = img.to_rgba8();
-            let (w, h) = rgba.dimensions();
-            let pixels = Arc::new(rgba.into_raw());
-            Message::DecodedImage(id, w, h, pixels)
-        }
-        Err(e) => {
-            log::error!("Failed to decode image {}: {}", id, e);
-            Message::Ignored
+async fn decode_chunk(chunk: Vec<(String, Vec<u8>)>) -> Message {
+    let mut decoded = Vec::with_capacity(chunk.len());
+    let mut failed = Vec::new();
+    for (id, bytes) in chunk {
+        match image::load_from_memory(&bytes) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (width, height) = rgba.dimensions();
+                decoded.push(DecodedCard {
+                    id,
+                    width,
+                    height,
+                    pixels: Arc::new(rgba.into_raw()),
+                });
+            }
+            Err(e) => {
+                log::error!("Failed to decode image {}: {}", id, e);
+                failed.push(id);
+            }
         }
     }
+    Message::ChunkDecoded { decoded, failed }
 }
 
 fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData) -> Task<Message> {
