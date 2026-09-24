@@ -21,6 +21,9 @@ jobs:
     - uses: actions/checkout@v4
     - name: Cache dependencies
       uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: main
+        add-rust-environment-hash-key: true
     - name: Build release
       run: cargo build --locked --release --verbose
     - name: Upload binary
