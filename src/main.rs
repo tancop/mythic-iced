@@ -196,10 +196,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 state.catalog_items.insert(id.clone(), info);
 
                 if state.image_library.get(&id).is_some() {
+                    // Bytes already cached: decode now (covers app start with
+                    // a warm cache, where no scroll event may ever fire).
+                    let decode_task = decode_visible(state);
                     if let Some(next) = state.pending_items.pop_front() {
-                        fetch_game_info(state, &next)
+                        Task::batch([fetch_game_info(state, &next), decode_task])
                     } else {
-                        Task::none()
+                        decode_task
                     }
                 } else {
                     let encoded_url = match url::Url::parse(&raw_url) {
