@@ -6,6 +6,8 @@ use std::sync::Arc;
 use iced::{Element, Font, Task, Theme};
 use smart_default::SmartDefault;
 
+use crate::images::PixelData;
+
 mod decode;
 mod epic;
 mod images;
@@ -61,7 +63,7 @@ pub struct State {
     #[default(768.0)]
     pub viewport_height: f32,
     #[default(HashMap::new())]
-    pub decoded_images: HashMap<String, (u32, u32, Arc<Vec<u8>>)>,
+    pub decoded_images: HashMap<String, PixelData>,
     #[default(HashSet::new())]
     pub inflight_decodes: HashSet<String>,
 }

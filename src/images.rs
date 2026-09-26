@@ -67,6 +67,12 @@ pub struct DecodedCard {
     pub pixels: Arc<Vec<u8>>,
 }
 
+pub struct PixelData {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<Vec<u8>>,
+}
+
 pub fn library_path() -> PathBuf {
     dirs::cache_dir().unwrap().join("mythic").join("images.db")
 }
@@ -102,9 +108,14 @@ pub fn handle_chunk_decoded(
     }
     for card in decoded {
         state.inflight_decodes.remove(&card.id);
-        state
-            .decoded_images
-            .insert(card.id, (card.width, card.height, card.pixels));
+        state.decoded_images.insert(
+            card.id,
+            PixelData {
+                width: card.width,
+                height: card.height,
+                pixels: card.pixels,
+            },
+        );
     }
     Task::none()
 }

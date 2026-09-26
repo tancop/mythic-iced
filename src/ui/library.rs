@@ -5,7 +5,7 @@ use iced::{
 
 use iced::widget::container::Style;
 
-use crate::{Message, State, ui::TextWidgetExt};
+use crate::{Message, State, images::PixelData, ui::TextWidgetExt};
 
 pub const MIN_COLS: usize = 5;
 pub const MAX_COLS: usize = 7;
@@ -64,8 +64,14 @@ pub fn view(state: &State) -> Element<'_, Message> {
             let card: Element<'_, Message> = if let Some(catalog) =
                 state.catalog_items.get(item.catalog_item_id.as_ref())
             {
-                if let Some((w, h, pixels)) = state.decoded_images.get(&catalog.id) {
-                    let handle = iced::widget::image::Handle::from_rgba(*w, *h, pixels.to_vec());
+                if let Some(PixelData {
+                    width,
+                    height,
+                    pixels,
+                }) = state.decoded_images.get(&catalog.id)
+                {
+                    let handle =
+                        iced::widget::image::Handle::from_rgba(*width, *height, pixels.to_vec());
                     let img = image(handle)
                         .width(Length::Fill)
                         .height(Length::Fill)
