@@ -40,9 +40,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let header = text!("Library");
 
     let Some(items) = &state.library_items else {
-        return container(column![header, text!("Loading...")])
-            .center(Length::Fill)
-            .into();
+        return container(text!("Loading...")).center(Length::Fill).into();
     };
 
     let cols = cols_for_width(state.viewport_width);
