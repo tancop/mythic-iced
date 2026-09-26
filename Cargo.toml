@@ -23,5 +23,8 @@ toml = "1.1.6"
 url = "2"
 rkyv = { version = "0.8", default-features = false, features = ["std", "alloc", "hashbrown-0_14"] }
 
+[build-dependencies]
+winres = "0.1"
+
 [profile.test]
 inherits = "release"
