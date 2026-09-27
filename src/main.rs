@@ -14,6 +14,7 @@ mod epic;
 mod images;
 mod library;
 mod login;
+mod search;
 mod ui;
 
 const FONT_FILE: &[u8] = include_bytes!("../assets/Inter.ttf");
@@ -67,6 +68,10 @@ pub struct State {
     pub decoded_images: HashMap<String, PixelData>,
     #[default(HashSet::new())]
     pub inflight_decodes: HashSet<String>,
+
+    // Filter out DLC items from the library view
+    pub filter_dlc: bool,
+    pub search_query: String,
 }
 
 pub enum Page {

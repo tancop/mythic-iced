@@ -339,6 +339,12 @@ pub struct CatalogItem {
     pub dlc_item_list: Option<Vec<DlcRef>>,
 }
 
+impl CatalogItem {
+    pub fn is_dlc(&self) -> bool {
+        self.dlc_item_list.is_none()
+    }
+}
+
 const GAME_INFO_URL: &'static str = formatcp!("https://{}/catalog/api/shared", CATALOG_HOST);
 
 pub async fn get_game_info(
