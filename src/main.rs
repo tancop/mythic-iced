@@ -8,6 +8,7 @@ use smart_default::SmartDefault;
 
 use crate::images::PixelData;
 use crate::library::PendingItem;
+use crate::search::{FilterRule, SortKey};
 
 mod decode;
 mod epic;
@@ -70,8 +71,15 @@ pub struct State {
     pub inflight_decodes: HashSet<String>,
 
     // Filter out DLC items from the library view
-    pub filter_dlc: bool,
+    pub filter_dlc: FilterRule,
     pub search_query: String,
+    pub sort_key: SortKey,
+    pub sort_reverse: bool,
+    // Indexes into catalog_items in display order (filtered + sorted)
+    pub order: Vec<usize>,
+    // Acquisition dates by catalog id, for purchase-date sorting
+    #[default(HashMap::new())]
+    pub purchase_dates: HashMap<String, epic::UtcDateTime>,
 }
 
 pub enum Page {
@@ -100,6 +108,10 @@ enum Message {
         decoded: Vec<images::DecodedCard>,
         failed: Vec<String>,
     },
+    SortKeySelected(SortKey),
+    SortReverseToggled(bool),
+    DlcFilterSelected(FilterRule),
+    SearchQueryChanged(String),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -119,6 +131,10 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::ChunkDecoded { decoded, failed } => {
             images::handle_chunk_decoded(state, decoded, failed)
         }
+        Message::SortKeySelected(key) => search::set_sort_key(state, key),
+        Message::SortReverseToggled(reverse) => search::set_sort_reverse(state, reverse),
+        Message::DlcFilterSelected(rule) => search::set_dlc_filter(state, rule),
+        Message::SearchQueryChanged(query) => search::set_search_query(state, query),
     }
 }
 

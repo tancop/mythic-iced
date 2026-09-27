@@ -4,7 +4,7 @@ use std::sync::Arc;
 use iced::Task;
 use isahc::AsyncReadResponseExt;
 
-use crate::{Message, State, epic, images};
+use crate::{Message, State, epic, images, search};
 
 const CONCURRENT_LIMIT: usize = 20;
 
@@ -32,6 +32,13 @@ pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<M
     state.pending_items = queue;
     state.catalog_items = Some(Vec::new());
     state.total_items = items.len();
+    state.purchase_dates = items
+        .iter()
+        .filter_map(|item| {
+            item.acquisition_date
+                .map(|date| (item.catalog_item_id.to_string(), date))
+        })
+        .collect();
 
     let decode_task = images::decode_visible(state);
     Task::batch([fetch_task, decode_task])
@@ -69,6 +76,7 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
         {
             state.catalog_items.get_or_insert_with(Vec::new).push(info);
         }
+        search::rebuild_order(state);
 
         if state.image_library.get(&id).is_some() {
             // Bytes already cached: decode now (covers app start with
@@ -122,6 +130,7 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
         {
             state.catalog_items.get_or_insert_with(Vec::new).push(info);
         }
+        search::rebuild_order(state);
         if let Some(next) = state.pending_items.pop_front() {
             fetch_game_info(state, &next.namespace, &next.catalog_id)
         } else {
@@ -192,17 +201,18 @@ fn evict_stale(state: &mut State) {
     let Some(items) = &state.catalog_items else {
         return;
     };
+    let order = &state.order;
 
     let (lo, hi) = visible_range(state);
 
     let mut visible_ids = HashSet::new();
-    for chunk in items
+    for chunk in order
         .chunks(crate::ui::library::cols_for_width(state.viewport_width))
         .skip(lo)
         .take(hi.saturating_sub(lo))
     {
-        for item in chunk {
-            visible_ids.insert(item.id.clone());
+        for &index in chunk {
+            visible_ids.insert(items[index].id.clone());
         }
     }
 

@@ -124,6 +124,7 @@ pub fn decode_visible(state: &mut State) -> Task<Message> {
     let Some(items) = &state.catalog_items else {
         return Task::none();
     };
+    let order = &state.order;
 
     let cols = crate::ui::library::cols_for_width(state.viewport_width);
     let (lo, hi) = crate::library::visible_range(state);
@@ -132,9 +133,10 @@ pub fn decode_visible(state: &mut State) -> Task<Message> {
     // cards popping in one by one (each completion re-renders the grid).
     let mut chunks: Vec<Vec<(String, Vec<u8>)>> = Vec::new();
 
-    for chunk in items.chunks(cols).skip(lo).take(hi.saturating_sub(lo)) {
+    for chunk in order.chunks(cols).skip(lo).take(hi.saturating_sub(lo)) {
         let mut pending: Vec<(String, Vec<u8>)> = Vec::new();
-        for item in chunk {
+        for &index in chunk {
+            let item = &items[index];
             if state.decoded_images.contains_key(&item.id)
                 || !state.inflight_decodes.insert(item.id.clone())
             {

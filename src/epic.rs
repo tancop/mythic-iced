@@ -221,6 +221,9 @@ pub struct LibraryItem {
     // playable platforms, e.g. ["Windows"] or ["Win32", "Windows"]
     #[serde(default)]
     pub platform: Vec<String>,
+    // when the item was acquired (used for purchase-date sorting)
+    #[serde(default)]
+    pub acquisition_date: Option<UtcDateTime>,
 }
 
 const IGNORE_NAMESPACES: &[&str] = &[
@@ -341,7 +344,7 @@ pub struct CatalogItem {
 
 impl CatalogItem {
     pub fn is_dlc(&self) -> bool {
-        self.dlc_item_list.is_none()
+        self.categories.iter().any(|c| c == "addons")
     }
 }
 

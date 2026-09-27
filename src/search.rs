@@ -1,15 +1,123 @@
-use crate::{State, epic::CatalogItem};
+use std::cmp::Ordering;
+use std::fmt;
 
-pub fn is_excluded(state: &State, item: &CatalogItem) -> bool {
-    if state.filter_dlc && item.is_dlc() {
-        false
-    } else {
-        true
+use iced::Task;
+
+use crate::{Message, State, epic::CatalogItem};
+
+pub const SORT_KEYS: [SortKey; 3] = [SortKey::ReleaseDate, SortKey::PurchaseDate, SortKey::Title];
+pub const DLC_FILTERS: [FilterRule; 3] = [FilterRule::Allow, FilterRule::Only, FilterRule::Block];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SortKey {
+    ReleaseDate,
+    PurchaseDate,
+    #[default]
+    Title,
+}
+
+impl fmt::Display for SortKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SortKey::ReleaseDate => write!(f, "Release date"),
+            SortKey::PurchaseDate => write!(f, "Purchase date"),
+            SortKey::Title => write!(f, "Title A-Z"),
+        }
     }
 }
 
-const MAX_EDIT_DISTANCE: usize = 3;
-const WORD_SCORE_WEIGHT: f64 = 0.1;
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FilterRule {
+    #[default]
+    Allow, // no preference
+    Block, // only items that don't meet condition
+    Only,  // only items that meet condition
+}
+
+impl FilterRule {
+    // Returns true if the item should be included based on the condition and filter rule.
+    pub fn allows(&self, condition: bool) -> bool {
+        match self {
+            FilterRule::Allow => true,
+            FilterRule::Block => !condition,
+            FilterRule::Only => condition,
+        }
+    }
+}
+
+impl fmt::Display for FilterRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FilterRule::Allow => write!(f, "Games + DLC"),
+            FilterRule::Only => write!(f, "DLC only"),
+            FilterRule::Block => write!(f, "Games only"),
+        }
+    }
+}
+
+pub fn is_included(state: &State, item: &CatalogItem) -> bool {
+    if !state.filter_dlc.allows(item.is_dlc()) {
+        return false;
+    }
+
+    true
+}
+
+// Indexes into `State::catalog_items` in display order (filtered, then
+// sorted). The vec itself is never reordered; rebuild after every change.
+pub fn rebuild_order(state: &mut State) {
+    let order = match &state.catalog_items {
+        None => Vec::new(),
+        Some(items) => {
+            let mut order: Vec<usize> = (0..items.len())
+                .filter(|&i| is_included(state, &items[i]))
+                .collect();
+            order.sort_by(|&a, &b| compare(state, &items[a], &items[b]));
+            if state.sort_reverse {
+                order.reverse();
+            }
+            order
+        }
+    };
+    state.order = order;
+}
+
+fn compare(state: &State, a: &CatalogItem, b: &CatalogItem) -> Ordering {
+    match state.sort_key {
+        SortKey::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+        SortKey::ReleaseDate => a.creation_date.cmp(&b.creation_date),
+        SortKey::PurchaseDate => state
+            .purchase_dates
+            .get(&a.id)
+            .cmp(&state.purchase_dates.get(&b.id)),
+    }
+}
+
+pub fn set_sort_key(state: &mut State, key: SortKey) -> Task<Message> {
+    state.sort_key = key;
+    rebuild_order(state);
+    Task::none()
+}
+
+pub fn set_sort_reverse(state: &mut State, reverse: bool) -> Task<Message> {
+    state.sort_reverse = reverse;
+    rebuild_order(state);
+    Task::none()
+}
+
+pub fn set_dlc_filter(state: &mut State, rule: FilterRule) -> Task<Message> {
+    state.filter_dlc = rule;
+    rebuild_order(state);
+    Task::none()
+}
+
+pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
+    // Stored but not filtered on yet; rebuild keeps every toolbar control
+    // refreshing the order, so real search only needs an is_included case.
+    state.search_query = query;
+    rebuild_order(state);
+    Task::none()
+}
 
 // Lower score means the item's name is more similar to the query.
 // Caps out at 1.0 and may be negative.
@@ -17,15 +125,5 @@ pub fn relevance_score(state: &State, name: &CatalogItem) -> f64 {
     let name = &name.title;
     let query = &state.search_query;
 
-    let mut word_score = 0.0;
-
-    for word in name.split(' ') {
-        if word.len() == query.len() {
-            if strsim::hamming(word, query).unwrap() < MAX_EDIT_DISTANCE {
-                word_score += WORD_SCORE_WEIGHT;
-            }
-        }
-    }
-
-    strsim::jaro_winkler(name, query) - word_score
+    strsim::jaro_winkler(name, query)
 }
