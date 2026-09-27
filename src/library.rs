@@ -30,7 +30,7 @@ pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<M
     );
 
     state.pending_items = queue;
-    state.library_items = Some(items);
+    state.catalog_items = Some(Vec::new());
 
     let decode_task = images::decode_visible(state);
     Task::batch([fetch_task, decode_task])
@@ -58,7 +58,13 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
     let id = info.id.clone();
 
     if let Some(raw_url) = image_url {
-        state.catalog_items.insert(id.clone(), info);
+        if !state
+            .catalog_items
+            .as_ref()
+            .is_some_and(|items| items.iter().any(|item| item.id == id))
+        {
+            state.catalog_items.get_or_insert_with(Vec::new).push(info);
+        }
 
         if state.image_library.get(&id).is_some() {
             // Bytes already cached: decode now (covers app start with
@@ -105,7 +111,13 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
         }
     } else {
         log::warn!("No images found for {}", &info.title);
-        state.catalog_items.insert(id.clone(), info);
+        if !state
+            .catalog_items
+            .as_ref()
+            .is_some_and(|items| items.iter().any(|item| item.id == info.id))
+        {
+            state.catalog_items.get_or_insert_with(Vec::new).push(info);
+        }
         if let Some(next) = state.pending_items.pop_front() {
             fetch_game_info(state, &next.namespace, &next.catalog_id)
         } else {
@@ -159,7 +171,7 @@ fn fetch_game_info(
 }
 
 pub fn visible_range(state: &State) -> (usize, usize) {
-    let Some(items) = &state.library_items else {
+    let Some(items) = &state.catalog_items else {
         return (0, 0);
     };
     let pitch = crate::ui::library::row_pitch(state.viewport_width);
@@ -173,7 +185,7 @@ pub fn visible_range(state: &State) -> (usize, usize) {
 }
 
 fn evict_stale(state: &mut State) {
-    let Some(items) = &state.library_items else {
+    let Some(items) = &state.catalog_items else {
         return;
     };
 
@@ -186,9 +198,7 @@ fn evict_stale(state: &mut State) {
         .take(hi.saturating_sub(lo))
     {
         for item in chunk {
-            if let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) {
-                visible_ids.insert(catalog.id.clone());
-            }
+            visible_ids.insert(item.id.clone());
         }
     }
 

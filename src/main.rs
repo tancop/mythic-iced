@@ -51,9 +51,7 @@ pub struct State {
     #[default(Page::Login)]
     pub page: Page,
     pub exchange_code: String,
-    pub library_items: Option<Vec<epic::LibraryItem>>,
-    #[default(HashMap::new())]
-    pub catalog_items: HashMap<String, epic::CatalogItem>,
+    pub catalog_items: Option<Vec<epic::CatalogItem>>,
     #[default(images::ImageLibrary::empty())]
     pub image_library: images::ImageLibrary,
     #[default(VecDeque::new())]

@@ -7,7 +7,7 @@ use isahc::{
     http,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{io::Read, sync::Arc};
 
 use crate::decode;
 

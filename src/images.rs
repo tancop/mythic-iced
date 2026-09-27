@@ -121,7 +121,7 @@ pub fn handle_chunk_decoded(
 }
 
 pub fn decode_visible(state: &mut State) -> Task<Message> {
-    let Some(items) = &state.library_items else {
+    let Some(items) = &state.catalog_items else {
         return Task::none();
     };
 
@@ -135,22 +135,19 @@ pub fn decode_visible(state: &mut State) -> Task<Message> {
     for chunk in items.chunks(cols).skip(lo).take(hi.saturating_sub(lo)) {
         let mut pending: Vec<(String, Vec<u8>)> = Vec::new();
         for item in chunk {
-            let Some(catalog) = state.catalog_items.get(item.catalog_item_id.as_ref()) else {
-                continue;
-            };
-            if state.decoded_images.contains_key(&catalog.id)
-                || !state.inflight_decodes.insert(catalog.id.clone())
+            if state.decoded_images.contains_key(&item.id)
+                || !state.inflight_decodes.insert(item.id.clone())
             {
                 continue;
             }
-            match state.image_library.get(&catalog.id) {
+            match state.image_library.get(&item.id) {
                 Some(bytes) if !bytes.is_empty() => {
-                    pending.push((catalog.id.clone(), bytes.to_vec()));
+                    pending.push((item.id.clone(), bytes.to_vec()));
                 }
                 _ => {
                     // Not cached yet (or cached empty): don't wedge, retry on
                     // the next scroll event.
-                    state.inflight_decodes.remove(&catalog.id);
+                    state.inflight_decodes.remove(&item.id);
                 }
             }
         }

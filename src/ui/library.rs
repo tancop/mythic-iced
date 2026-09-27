@@ -39,7 +39,7 @@ pub fn row_pitch(viewport_width: f32) -> f32 {
 pub fn view(state: &State) -> Element<'_, Message> {
     let header = text!("Library");
 
-    let Some(items) = &state.library_items else {
+    let Some(items) = &state.catalog_items else {
         return container(text!("Loading...")).center(Length::Fill).into();
     };
 
@@ -60,30 +60,24 @@ pub fn view(state: &State) -> Element<'_, Message> {
     for chunk in items.chunks(cols).skip(lo).take(hi.saturating_sub(lo)) {
         let mut cards: Vec<Element<'_, Message>> = Vec::new();
 
-        for item in chunk {
-            let card: Element<'_, Message> = if let Some(catalog) =
-                state.catalog_items.get(item.catalog_item_id.as_ref())
+        for catalog in chunk {
+            let card: Element<'_, Message> = if let Some(PixelData {
+                width,
+                height,
+                pixels,
+            }) = state.decoded_images.get(&catalog.id)
             {
-                if let Some(PixelData {
-                    width,
-                    height,
-                    pixels,
-                }) = state.decoded_images.get(&catalog.id)
-                {
-                    let handle =
-                        iced::widget::image::Handle::from_rgba(*width, *height, pixels.to_vec());
-                    let img = image(handle)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .content_fit(iced::ContentFit::Cover);
-                    container(column![img, text!("{}", catalog.title).size(14).bold()])
-                        .width(Length::Fixed(card_w))
-                        .height(Length::Fixed(card_h))
-                        .clip(true)
-                        .into()
-                } else {
-                    placeholder_card(card_w, card_h)
-                }
+                let handle =
+                    iced::widget::image::Handle::from_rgba(*width, *height, pixels.to_vec());
+                let img = image(handle)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Cover);
+                container(column![img, text!("{}", catalog.title).size(14).bold()])
+                    .width(Length::Fixed(card_w))
+                    .height(Length::Fixed(card_h))
+                    .clip(true)
+                    .into()
             } else {
                 placeholder_card(card_w, card_h)
             };
