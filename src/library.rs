@@ -143,6 +143,12 @@ pub fn handle_scrolled(state: &mut State, offset_y: f32, width: f32, height: f32
     state.scroll_offset = offset_y;
     state.viewport_width = width;
     state.viewport_height = height;
+    refresh_visible(state)
+}
+
+// Drop off-screen decodes and decode the current window. Used after scrolls
+// and after anything else that changes which rows are visible (sort/filter).
+pub fn refresh_visible(state: &mut State) -> Task<Message> {
     evict_stale(state);
     images::decode_visible(state)
 }

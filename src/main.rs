@@ -71,6 +71,7 @@ pub struct State {
     pub inflight_decodes: HashSet<String>,
 
     // Filter out DLC items from the library view
+    #[default(FilterRule::Block)]
     pub filter_dlc: FilterRule,
     pub search_query: String,
     pub sort_key: SortKey,

@@ -96,19 +96,19 @@ fn compare(state: &State, a: &CatalogItem, b: &CatalogItem) -> Ordering {
 pub fn set_sort_key(state: &mut State, key: SortKey) -> Task<Message> {
     state.sort_key = key;
     rebuild_order(state);
-    Task::none()
+    crate::library::refresh_visible(state)
 }
 
 pub fn set_sort_reverse(state: &mut State, reverse: bool) -> Task<Message> {
     state.sort_reverse = reverse;
     rebuild_order(state);
-    Task::none()
+    crate::library::refresh_visible(state)
 }
 
 pub fn set_dlc_filter(state: &mut State, rule: FilterRule) -> Task<Message> {
     state.filter_dlc = rule;
     rebuild_order(state);
-    Task::none()
+    crate::library::refresh_visible(state)
 }
 
 pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
@@ -116,7 +116,7 @@ pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
     // refreshing the order, so real search only needs an is_included case.
     state.search_query = query;
     rebuild_order(state);
-    Task::none()
+    crate::library::refresh_visible(state)
 }
 
 // Lower score means the item's name is more similar to the query.
