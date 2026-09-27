@@ -8,7 +8,7 @@ use iced::widget::container::Style;
 use crate::{
     Message, State,
     images::PixelData,
-    search::{DLC_FILTERS, FilterRule, SORT_KEYS},
+    search::{DLC_FILTERS, FilterRule, SORT_KEYS, effective_sort_key},
     ui::TextWidgetExt,
 };
 
@@ -63,7 +63,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         text!("Sort:"),
         pick_list(
             &SORT_KEYS[..],
-            Some(state.sort_key),
+            Some(effective_sort_key(state)),
             Message::SortKeySelected
         ),
         checkbox(state.sort_reverse)

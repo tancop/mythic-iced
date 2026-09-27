@@ -14,6 +14,9 @@ pub enum SortKey {
     PurchaseDate,
     #[default]
     Title,
+    // Active while the search box is non-empty. Never offered in the
+    // dropdown; the pick list just displays it as the current mode.
+    Search,
 }
 
 impl fmt::Display for SortKey {
@@ -22,6 +25,7 @@ impl fmt::Display for SortKey {
             SortKey::ReleaseDate => write!(f, "Release date"),
             SortKey::PurchaseDate => write!(f, "Purchase date"),
             SortKey::Title => write!(f, "Title A-Z"),
+            SortKey::Search => write!(f, "Search"),
         }
     }
 }
@@ -83,13 +87,24 @@ pub fn rebuild_order(state: &mut State) {
 }
 
 fn compare(state: &State, a: &CatalogItem, b: &CatalogItem) -> Ordering {
-    match state.sort_key {
+    match effective_sort_key(state) {
         SortKey::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
         SortKey::ReleaseDate => a.creation_date.cmp(&b.creation_date),
         SortKey::PurchaseDate => state
             .purchase_dates
             .get(&a.id)
             .cmp(&state.purchase_dates.get(&b.id)),
+        // Best match first.
+        SortKey::Search => relevance_score(state, b).total_cmp(&relevance_score(state, a)),
+    }
+}
+
+// The search box overrides the dropdown selection while it holds text.
+pub fn effective_sort_key(state: &State) -> SortKey {
+    if state.search_query.is_empty() {
+        state.sort_key
+    } else {
+        SortKey::Search
     }
 }
 
@@ -119,11 +134,11 @@ pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
     crate::library::refresh_visible(state)
 }
 
-// Lower score means the item's name is more similar to the query.
-// Caps out at 1.0 and may be negative.
+// Higher means more similar (case-insensitive jaro-winkler); best matches
+// sort first. Nothing is hidden by the query yet.
 pub fn relevance_score(state: &State, name: &CatalogItem) -> f64 {
     let name = &name.title;
     let query = &state.search_query;
 
-    strsim::jaro_winkler(name, query)
+    strsim::jaro_winkler(&name.to_lowercase(), &query.to_lowercase())
 }
