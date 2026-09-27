@@ -31,12 +31,16 @@ pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<M
 
     state.pending_items = queue;
     state.catalog_items = Some(Vec::new());
+    state.total_items = items.len();
 
     let decode_task = images::decode_visible(state);
     Task::batch([fetch_task, decode_task])
 }
 
 pub fn handle_game_info_failed(state: &mut State) -> Task<Message> {
+    // This item will never arrive: shrink the expected total so no phantom
+    // row is left reserved for it at the bottom of the grid.
+    state.total_items = state.total_items.saturating_sub(1);
     if let Some(next) = state.pending_items.pop_front() {
         fetch_game_info(state, &next.namespace, &next.catalog_id)
     } else {
@@ -171,12 +175,12 @@ fn fetch_game_info(
 }
 
 pub fn visible_range(state: &State) -> (usize, usize) {
-    let Some(items) = &state.catalog_items else {
+    if state.catalog_items.is_none() {
         return (0, 0);
     };
     let pitch = crate::ui::library::row_pitch(state.viewport_width);
     let cols = crate::ui::library::cols_for_width(state.viewport_width);
-    let total_rows = items.len() / cols + (items.len() % cols != 0) as usize;
+    let total_rows = state.total_items / cols + (state.total_items % cols != 0) as usize;
     let first_visible_row = (state.scroll_offset / pitch) as usize;
     let visible_rows = (state.viewport_height / pitch) as usize + 1;
     let lo = first_visible_row.saturating_sub(crate::ui::library::BUFFER_ROWS);

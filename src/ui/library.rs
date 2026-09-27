@@ -44,7 +44,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
     };
 
     let cols = cols_for_width(state.viewport_width);
-    let total_rows = items.len() / cols + (items.len() % cols != 0) as usize;
+    // Sized from the final item count so the scrollbar is stable from the start
+    let total_rows = state.total_items / cols + (state.total_items % cols != 0) as usize;
+    let loaded_rows = items.len() / cols + (items.len() % cols != 0) as usize;
 
     let pitch = row_pitch(state.viewport_width);
     let card_w = card_width(state.viewport_width);
@@ -53,7 +55,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let first_visible_row = (state.scroll_offset / pitch) as usize;
     let visible_rows = (state.viewport_height / pitch) as usize + 1;
     let lo = first_visible_row.saturating_sub(BUFFER_ROWS);
-    let hi = (first_visible_row + visible_rows + BUFFER_ROWS).min(total_rows);
+    let hi = (first_visible_row + visible_rows + BUFFER_ROWS)
+        .min(total_rows)
+        .min(loaded_rows);
 
     let mut visible: Vec<Element<'_, Message>> = Vec::new();
 
