@@ -8,21 +8,37 @@ use crate::{Message, State, epic, images};
 
 const CONCURRENT_LIMIT: usize = 20;
 
-pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<Message> {
-    state.library_items = Some(items.clone());
+pub struct PendingItem {
+    pub namespace: Arc<String>,
+    pub catalog_id: Arc<String>,
+}
 
-    let mut queue: VecDeque<_> = items.into_iter().collect();
+pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<Message> {
+    let mut queue: VecDeque<_> = items
+        .iter()
+        .map(|item| PendingItem {
+            namespace: item.namespace.clone(),
+            catalog_id: item.catalog_item_id.clone(),
+        })
+        .collect();
     let initial: Vec<_> = queue.drain(..CONCURRENT_LIMIT.min(queue.len())).collect();
 
-    let fetch_task = Task::batch(initial.iter().map(|item| fetch_game_info(state, item)));
+    let fetch_task = Task::batch(
+        initial
+            .iter()
+            .map(|item| fetch_game_info(state, &item.namespace, &item.catalog_id)),
+    );
+
     state.pending_items = queue;
+    state.library_items = Some(items);
+
     let decode_task = images::decode_visible(state);
     Task::batch([fetch_task, decode_task])
 }
 
 pub fn handle_game_info_failed(state: &mut State) -> Task<Message> {
     if let Some(next) = state.pending_items.pop_front() {
-        fetch_game_info(state, &next)
+        fetch_game_info(state, &next.namespace, &next.catalog_id)
     } else {
         Task::none()
     }
@@ -49,7 +65,10 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
             // a warm cache, where no scroll event may ever fire).
             let decode_task = images::decode_visible(state);
             if let Some(next) = state.pending_items.pop_front() {
-                Task::batch([fetch_game_info(state, &next), decode_task])
+                Task::batch([
+                    fetch_game_info(state, &next.namespace, &next.catalog_id),
+                    decode_task,
+                ])
             } else {
                 decode_task
             }
@@ -78,7 +97,7 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
             });
 
             if let Some(next) = state.pending_items.pop_front() {
-                let fetch_task = fetch_game_info(state, &next);
+                let fetch_task = fetch_game_info(state, &next.namespace, &next.catalog_id);
                 Task::batch([download_task, fetch_task])
             } else {
                 download_task
@@ -88,7 +107,7 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
         log::warn!("No images found for {}", &info.title);
         state.catalog_items.insert(id.clone(), info);
         if let Some(next) = state.pending_items.pop_front() {
-            fetch_game_info(state, &next)
+            fetch_game_info(state, &next.namespace, &next.catalog_id)
         } else {
             Task::none()
         }
@@ -118,11 +137,15 @@ pub fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData)
     })
 }
 
-fn fetch_game_info(state: &State, item: &epic::LibraryItem) -> Task<Message> {
+fn fetch_game_info(
+    state: &State,
+    namespace: &Arc<String>,
+    catalog_id: &Arc<String>,
+) -> Task<Message> {
     let client = state.http_client.clone();
     let access_token = state.auth_data.as_ref().unwrap().access_token.clone();
-    let namespace = item.namespace.clone();
-    let catalog_id = item.catalog_item_id.clone();
+    let namespace = namespace.clone();
+    let catalog_id = catalog_id.clone();
 
     Task::future(async move {
         match epic::get_game_info(&client, &access_token, &namespace, &catalog_id).await {

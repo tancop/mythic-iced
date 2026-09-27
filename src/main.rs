@@ -7,6 +7,7 @@ use iced::{Element, Font, Task, Theme};
 use smart_default::SmartDefault;
 
 use crate::images::PixelData;
+use crate::library::PendingItem;
 
 mod decode;
 mod epic;
@@ -55,7 +56,7 @@ pub struct State {
     #[default(images::ImageLibrary::empty())]
     pub image_library: images::ImageLibrary,
     #[default(VecDeque::new())]
-    pub pending_items: VecDeque<epic::LibraryItem>,
+    pub pending_items: VecDeque<PendingItem>,
     #[default(0.0)]
     pub scroll_offset: f32,
     #[default(1024.0)]
