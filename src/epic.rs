@@ -305,60 +305,190 @@ fn parse_library_records(values: &[serde_json::Value]) -> Vec<GqlRecord> {
 }
 
 /// Fetch the whole library (catalog info included) via the undocumented
-/// store GraphQL API. One paginated request chain replaces N per-item
-/// catalog fetches. Requires the store UA + bearer auth, else 401.
+/// store GraphQL API. Page cursors are base64 `{"offset":N}` blobs, so after
+/// probing the first page (which reveals the page step) the remaining pages
+/// are fetched with up to `PAGE_PARALLELISM` requests in flight: each
+/// completion spawns the next unrequested offset until a page comes back
+/// with a null cursor, empty records, or an error. Requires the store UA +
+/// bearer auth, else 401.
 pub async fn get_library_catalog(
     client: &isahc::HttpClient,
     auth_token: &str,
 ) -> anyhow::Result<LibraryCatalog> {
+    use iced::futures::future::{FutureExt, select_all};
+
+    const PAGE_PARALLELISM: usize = 5;
+    const FALLBACK_STEP: u64 = 100;
+
+    // Probe: the first page is fetched alone so the page step can be derived
+    // from the server's own cursor instead of assumed.
+    let first = fetch_library_page(client, auth_token, None, 0).await?;
+    if first.next_cursor.is_none() || first.records.is_empty() {
+        return Ok(merge_library_pages(vec![first]));
+    }
+    let step = first
+        .next_cursor
+        .as_deref()
+        .and_then(crate::decode::decode_offset_cursor)
+        .filter(|step| *step > 0)
+        .unwrap_or_else(|| {
+            log::warn!(
+                "unexpected library cursor shape {:?}, assuming page step {FALLBACK_STEP}",
+                first.next_cursor
+            );
+            FALLBACK_STEP
+        });
+
+    let mut pages = vec![first];
+    let mut next_offset = step;
+    let mut pending: Vec<_> = (0..PAGE_PARALLELISM)
+        .map(|_| {
+            let offset = next_offset;
+            next_offset += step;
+            fetch_library_page(
+                client,
+                auth_token,
+                Some(crate::decode::encode_offset_cursor(offset)),
+                offset,
+            )
+            .boxed()
+        })
+        .collect();
+
+    let mut end_found = false;
+    while !pending.is_empty() {
+        let (result, _index, rest) = select_all(pending).await;
+        pending = rest;
+        match result {
+            Ok(page) => {
+                let end = page.next_cursor.is_none() || page.records.is_empty();
+                if end {
+                    end_found = true;
+                }
+                pages.push(page);
+                if !end_found {
+                    let offset = next_offset;
+                    next_offset += step;
+                    pending.push(
+                        fetch_library_page(
+                            client,
+                            auth_token,
+                            Some(crate::decode::encode_offset_cursor(offset)),
+                            offset,
+                        )
+                        .boxed(),
+                    );
+                }
+            }
+            Err(e) => {
+                // Stop spawning; keep whatever pages already arrived so one
+                // flaky page can't discard the whole library.
+                log::error!("library page fetch failed, stopping early: {e:#}");
+                end_found = true;
+            }
+        }
+    }
+
+    Ok(merge_library_pages(pages))
+}
+
+struct LibraryPage {
+    offset: u64,
+    records: Vec<serde_json::Value>,
+    next_cursor: Option<String>,
+}
+
+/// Fetch a single library page (retried once), returning its raw records and
+/// the server's `nextCursor`.
+async fn fetch_library_page(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    cursor: Option<String>,
+    offset: u64,
+) -> anyhow::Result<LibraryPage> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match fetch_library_page_once(client, auth_token, cursor.clone()).await {
+            Ok((records, next_cursor)) => {
+                return Ok(LibraryPage {
+                    offset,
+                    records,
+                    next_cursor,
+                });
+            }
+            Err(e) if attempt < 2 => {
+                log::warn!("library page at offset {offset} failed, retrying: {e:#}");
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("library page at offset {offset}: {e:#}"));
+            }
+        }
+    }
+}
+
+async fn fetch_library_page_once(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    cursor: Option<String>,
+) -> anyhow::Result<(Vec<serde_json::Value>, Option<String>)> {
+    let body = serde_json::to_vec(&GqlRequest {
+        query: LIBRARY_QUERY,
+        variables: GqlVariables {
+            cursor: cursor.clone(),
+            locale: "en".to_string(),
+        },
+    })?;
+
+    let req = Request::post(STORE_GQL_URL)
+        .bearer_auth(auth_token)
+        .user_agent(STORE_USER_AGENT)
+        .content_type(ContentType::Json)
+        .body(body)
+        .unwrap();
+    let mut res = client.send_async(req).await?;
+    let bytes = res.bytes().await?;
+
+    log::debug!(
+        "library gql response: {:?}",
+        str::from_utf8(&bytes).unwrap_or("<non-utf8>")
+    );
+
+    // Trailing whitespace (e.g. the final newline) is valid JSON and
+    // ignored by serde; trim defensively so transport padding can't
+    // trip page parsing.
+    let trimmed = trim_trailing_whitespace(&bytes);
+    let gql = serde_json::from_slice::<GqlResponse>(trimmed).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to parse library GraphQL page (cursor={cursor:?}, {} bytes): {e}",
+            bytes.len()
+        )
+    })?;
+    if let Some(errors) = gql.errors
+        && !errors.is_empty()
+    {
+        let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+        bail!("library GraphQL query failed: {}", msgs.join("; "));
+    }
+    let Some(data) = gql.data else {
+        bail!("library GraphQL response missing data");
+    };
+
+    let items = data.library.library_items;
+    Ok((
+        items.records,
+        items.response_metadata.and_then(|m| m.next_cursor),
+    ))
+}
+
+/// Merge fetched pages in offset order into catalog items + purchase dates,
+/// applying the usual namespace / platform filters.
+fn merge_library_pages(mut pages: Vec<LibraryPage>) -> LibraryCatalog {
+    pages.sort_by_key(|page| page.offset);
     let mut items = Vec::new();
     let mut purchase_dates = std::collections::HashMap::new();
-    let mut cursor: Option<String> = None;
-
-    loop {
-        let body = serde_json::to_vec(&GqlRequest {
-            query: LIBRARY_QUERY,
-            variables: GqlVariables {
-                cursor: cursor.clone(),
-                locale: "en".to_string(),
-            },
-        })?;
-
-        let req = Request::post(STORE_GQL_URL)
-            .bearer_auth(auth_token)
-            .user_agent(STORE_USER_AGENT)
-            .content_type(ContentType::Json)
-            .body(body)
-            .unwrap();
-        let mut res = client.send_async(req).await?;
-        let bytes = res.bytes().await?;
-
-        log::debug!(
-            "library gql response: {:?}",
-            str::from_utf8(&bytes).unwrap_or("<non-utf8>")
-        );
-
-        // Trailing whitespace (e.g. the final newline) is valid JSON and
-        // ignored by serde; trim defensively so transport padding can't
-        // trip page parsing.
-        let trimmed = trim_trailing_whitespace(&bytes);
-        let gql = serde_json::from_slice::<GqlResponse>(trimmed).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse library GraphQL page (cursor={cursor:?}, {} bytes): {e}",
-                bytes.len()
-            )
-        })?;
-        if let Some(errors) = gql.errors
-            && !errors.is_empty()
-        {
-            let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-            bail!("library GraphQL query failed: {}", msgs.join("; "));
-        }
-        let Some(data) = gql.data else {
-            bail!("library GraphQL response missing data");
-        };
-
-        for record in parse_library_records(&data.library.library_items.records) {
+    for page in pages {
+        for record in parse_library_records(&page.records) {
             let Some(item) = record.catalog_item else {
                 continue;
             };
@@ -373,22 +503,11 @@ pub async fn get_library_catalog(
             }
             items.push(item);
         }
-
-        match data
-            .library
-            .library_items
-            .response_metadata
-            .and_then(|m| m.next_cursor)
-        {
-            Some(next) => cursor = Some(next),
-            None => break,
-        }
     }
-
-    Ok(LibraryCatalog {
+    LibraryCatalog {
         items,
         purchase_dates,
-    })
+    }
 }
 
 const MANIFEST_URL: &'static str = formatcp!(
@@ -638,6 +757,62 @@ mod tests {
         let item = record.catalog_item.expect("item");
         assert_eq!(item.creation_date, crate::decode::default_epoch());
         assert!(item.supports_windows());
+    }
+
+    #[test]
+    fn offset_cursors_round_trip() {
+        use crate::decode::{decode_offset_cursor, encode_offset_cursor};
+
+        // Known server value for the second page.
+        assert_eq!(encode_offset_cursor(100), "eyJvZmZzZXQiOjEwMH0=");
+        assert_eq!(decode_offset_cursor("eyJvZmZzZXQiOjEwMH0="), Some(100));
+        assert_eq!(decode_offset_cursor(&encode_offset_cursor(0)), Some(0));
+        assert_eq!(
+            decode_offset_cursor(&encode_offset_cursor(12345)),
+            Some(12345)
+        );
+        assert_eq!(decode_offset_cursor(""), None);
+        assert_eq!(decode_offset_cursor("!!!"), None);
+    }
+
+    fn test_record(id: &str, title: &str) -> serde_json::Value {
+        serde_json::json!({
+            "acquisitionDate": "2020-05-21T15:09:34.499Z",
+            "catalogItem": {
+                "id": id,
+                "namespace": "ns",
+                "title": title,
+                "keyImages": [],
+                "categories": [{"path": "games"}],
+                "creationDate": "2019-08-19T19:51:13.782Z",
+                "lastModifiedDate": "2025-06-24T17:04:34.242Z",
+                "dlcItemList": null,
+                "mainGameItem": null,
+                "releaseInfo": [{"appId": "x", "platform": ["Windows"]}],
+            }
+        })
+    }
+
+    #[test]
+    fn merge_keeps_page_offset_order() {
+        // Pages may finish out of order; merge must restore offset order and
+        // carry purchase dates along.
+        let catalog = merge_library_pages(vec![
+            LibraryPage {
+                offset: 100,
+                records: vec![test_record("b", "Second")],
+                next_cursor: None,
+            },
+            LibraryPage {
+                offset: 0,
+                records: vec![test_record("a", "First")],
+                next_cursor: Some("cursor".to_string()),
+            },
+        ]);
+        let titles: Vec<_> = catalog.items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["First", "Second"]);
+        assert!(catalog.purchase_dates.contains_key("a"));
+        assert!(catalog.purchase_dates.contains_key("b"));
     }
 
     #[test]

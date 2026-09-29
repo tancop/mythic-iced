@@ -1,6 +1,95 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::Deserializer;
 
+const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn b64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        out.push(B64_ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(B64_ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            B64_ALPHABET[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64_ALPHABET[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+fn b64_value(byte: u8) -> Option<u32> {
+    match byte {
+        b'A'..=b'Z' => Some((byte - b'A') as u32),
+        b'a'..=b'z' => Some((byte - b'a' + 26) as u32),
+        b'0'..=b'9' => Some((byte - b'0' + 52) as u32),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
+}
+
+fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    for chunk in bytes.chunks(4) {
+        let pad = chunk.iter().rev().take_while(|&&b| b == b'=').count();
+        if pad > 2 {
+            return None;
+        }
+        let mut n = 0u32;
+        for (i, &b) in chunk.iter().enumerate() {
+            if b == b'=' {
+                if i < 4 - pad {
+                    return None;
+                }
+            } else {
+                if i >= 4 - pad {
+                    return None;
+                }
+                n |= b64_value(b)? << (18 - 6 * i);
+            }
+        }
+        out.push((n >> 16) as u8);
+        if pad < 2 {
+            out.push((n >> 8) as u8);
+        }
+        if pad < 1 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
+}
+
+/// Encode a library page cursor (`{"offset":N}` as standard base64) so pages
+/// can be requested in parallel without waiting for the previous page's
+/// `nextCursor`.
+pub fn encode_offset_cursor(offset: u64) -> String {
+    b64_encode(format!("{{\"offset\":{offset}}}").as_bytes())
+}
+
+/// Decode a library page cursor back to its offset; `None` when the cursor
+/// has an unexpected shape (caller should fall back to sequential paging).
+pub fn decode_offset_cursor(cursor: &str) -> Option<u64> {
+    let bytes = b64_decode(cursor.trim())?;
+    let text = str::from_utf8(&bytes).ok()?;
+    let inner = text
+        .trim()
+        .strip_prefix("{\"offset\":")?
+        .strip_suffix('}')?;
+    inner.trim().parse().ok()
+}
+
 /// Fallback for required datetime fields when the value is missing, null,
 /// or unparseable: the game still loads, it just sorts as the oldest item.
 pub fn default_epoch() -> DateTime<Utc> {

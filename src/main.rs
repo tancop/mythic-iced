@@ -35,6 +35,8 @@ pub const BOLD_FONT: Font = {
 fn main() {
     env_logger::init();
 
+    log::info!("Starting Mythic Launcher...");
+
     iced::application(boot, update, view)
         .title("Mythic")
         .theme(Theme::Custom(ui::get_theme().into()))
