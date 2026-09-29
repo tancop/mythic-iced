@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use iced::{Color, theme::Palette};
 
 const fn hsl(h: f32, s: f32, l: f32) -> Color {
@@ -21,6 +23,9 @@ pub const SUCCESS: Color = hsl(130.0, 1.0, 0.5);
 pub const WARNING: Color = hsl(61.0, 0.9, 0.5);
 
 pub const DANGER: Color = hsl(6.0, 0.9, 0.5);
+
+// Mythic rarity color taken from Fortnite wiki
+pub const BRAND_COLOR: Color = Color::from_rgb8(0xed, 0xbe, 0x51);
 
 pub const MAIN_PALETTE: Palette = Palette {
     background: BACKGROUND,
