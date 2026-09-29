@@ -633,6 +633,12 @@ pub struct CatalogItem {
     // Present in the GraphQL library response; used for platform filtering.
     #[serde(default)]
     pub release_info: Vec<ReleaseInfo>,
+
+    // Precomputed by the loading code via `search::build_search_key`:
+    // lowercased title with noise words and punctuation stripped. Never
+    // serialized; search compares against this instead of `title`.
+    #[serde(default)]
+    pub search_key: String,
 }
 
 impl CatalogItem {
@@ -669,6 +675,7 @@ mod tests {
                 unsearchable: false,
             }),
             release_info: Vec::new(),
+            search_key: crate::search::build_search_key(title),
         }
     }
 

@@ -142,21 +142,42 @@ const CLOSE_MATCH_DISTANCE: usize = 3;
 
 const NOISE_WORDS: &[&str] = &["and", "the", "of", "a", "an"];
 
+/// Copyright / trademark symbols stripped from titles before searching.
+const MARK_SYMBOLS: &[char] = &['©', '®', '™'];
+
+/// Precompute the string search compares against: the lowercased title with
+/// noise words, punctuation, and ©/®/™ stripped, words joined by single
+/// spaces. Kept as one string; callers split on `' '` when scoring.
+pub fn build_search_key(title: &str) -> String {
+    title
+        .to_lowercase()
+        .chars()
+        .filter(|c| !MARK_SYMBOLS.contains(c))
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .filter(|word| !NOISE_WORDS.contains(word))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 // Higher means more similar (case-insensitive jaro-winkler); best matches
 // sort first. Nothing is hidden by the query yet.
 pub fn relevance_score(state: &State, item: &CatalogItem) -> f64 {
-    let title = item.title.to_lowercase();
+    // `search_key` is already lowercased with noise words stripped, so no
+    // per-item normalization is needed here.
     let query = state.search_query.to_lowercase();
 
     // Base similarity
-    let mut score = strsim::jaro_winkler(&title, &query);
+    let mut score = strsim::jaro_winkler(&item.search_key, &query);
 
-    for word in title.split(' ') {
-        // Exclude prepositions to avoid false match
-        if NOISE_WORDS.contains(&word) {
-            continue;
-        }
-
+    for word in item.search_key.split(' ') {
         // Per-word similarity
         let word_score = strsim::jaro_winkler(word, &query);
         if word_score >= MIN_WORD_SCORE {
@@ -171,4 +192,63 @@ pub fn relevance_score(state: &State, item: &CatalogItem) -> f64 {
     }
 
     score
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scored_item(title: &str) -> CatalogItem {
+        CatalogItem {
+            id: title.to_string(),
+            namespace: String::new(),
+            title: title.to_string(),
+            description: String::new(),
+            key_images: Vec::new(),
+            categories: Vec::new(),
+            creation_date: chrono::Utc::now(),
+            last_modified_date: chrono::Utc::now(),
+            developer: String::new(),
+            dlc_item_list: None,
+            main_game_item: None,
+            release_info: Vec::new(),
+            search_key: build_search_key(title),
+        }
+    }
+
+    #[test]
+    fn search_key_normalizes_titles() {
+        assert_eq!(
+            build_search_key("Sid Meier's Civilization VI"),
+            "sid meier s civilization vi"
+        );
+        assert_eq!(build_search_key("The Long Dark"), "long dark");
+        assert_eq!(build_search_key("3 out of 10, EP 4"), "3 out 10 ep 4");
+        assert_eq!(build_search_key("Rocket League®"), "rocket league");
+        assert_eq!(build_search_key("© 2020 Game (Beta)!"), "2020 game beta");
+        assert_eq!(build_search_key("  Spaced   Out  "), "spaced out");
+        assert_eq!(build_search_key("Pokémon"), "pokémon");
+        // Nothing left after noise-word removal.
+        assert_eq!(build_search_key("The"), "");
+        assert_eq!(build_search_key(""), "");
+    }
+
+    #[test]
+    fn relevance_prefers_closer_search_key() {
+        let mut state = State::default();
+        state.search_query = "civ".to_string();
+
+        let civ = scored_item("Sid Meier's Civilization VI");
+        let torchlight = scored_item("Torchlight II");
+        assert!(relevance_score(&state, &civ) > relevance_score(&state, &torchlight));
+    }
+
+    #[test]
+    fn relevance_handles_empty_search_key() {
+        let mut state = State::default();
+        state.search_query = "the".to_string();
+
+        let score = relevance_score(&state, &scored_item("The"));
+        assert!(score.is_finite());
+    }
 }

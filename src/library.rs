@@ -11,6 +11,10 @@ pub fn handle_loaded(
     items: Vec<epic::CatalogItem>,
     purchase_dates: HashMap<String, epic::UtcDateTime>,
 ) -> Task<Message> {
+    let mut items = items;
+    for item in &mut items {
+        item.search_key = search::build_search_key(&item.title);
+    }
     state.catalog_items = Some(items);
     state.total_items = state.catalog_items.as_ref().map(|v| v.len()).unwrap_or(0);
     state.inflight_fetches = 0;
