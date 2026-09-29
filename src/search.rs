@@ -136,7 +136,11 @@ pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
 
 const WORD_BONUS_SCALE: f64 = 0.1;
 const MIN_WORD_SCORE: f64 = 0.7;
-const EXACT_WORD_BONUS: f64 = 0.2;
+
+const CLOSE_MATCH_BONUS: f64 = 0.067;
+const CLOSE_MATCH_DISTANCE: usize = 3;
+
+const NOISE_WORDS: &[&str] = &["and", "the", "of", "a", "an"];
 
 // Higher means more similar (case-insensitive jaro-winkler); best matches
 // sort first. Nothing is hidden by the query yet.
@@ -144,19 +148,27 @@ pub fn relevance_score(state: &State, item: &CatalogItem) -> f64 {
     let title = item.title.to_lowercase();
     let query = state.search_query.to_lowercase();
 
-    let mut word_bonus = 0.0;
+    // Base similarity
+    let mut score = strsim::jaro_winkler(&title, &query);
 
     for word in title.split(' ') {
-        let score = strsim::jaro_winkler(word, &query);
-        if score >= MIN_WORD_SCORE {
-            word_bonus += score * WORD_BONUS_SCALE
+        // Exclude prepositions to avoid false match
+        if NOISE_WORDS.contains(&word) {
+            continue;
         }
 
-        // Reward exact match
-        if word == query {
-            word_bonus += EXACT_WORD_BONUS;
+        // Per-word similarity
+        let word_score = strsim::jaro_winkler(word, &query);
+        if word_score >= MIN_WORD_SCORE {
+            score += word_score * WORD_BONUS_SCALE
+        }
+
+        // Reward close match
+        let distance = strsim::levenshtein(word, &query);
+        if distance < CLOSE_MATCH_DISTANCE {
+            score += (CLOSE_MATCH_DISTANCE - distance) as f64 * CLOSE_MATCH_BONUS;
         }
     }
 
-    strsim::jaro(&title, &query) + word_bonus
+    score
 }
