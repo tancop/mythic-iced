@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use iced::Task;
@@ -6,141 +6,69 @@ use isahc::AsyncReadResponseExt;
 
 use crate::{Message, State, epic, images, search};
 
-const CONCURRENT_LIMIT: usize = 20;
+pub fn handle_loaded(
+    state: &mut State,
+    items: Vec<epic::CatalogItem>,
+    purchase_dates: HashMap<String, epic::UtcDateTime>,
+) -> Task<Message> {
+    state.catalog_items = Some(items);
+    state.total_items = state.catalog_items.as_ref().map(|v| v.len()).unwrap_or(0);
+    state.inflight_fetches = 0;
+    state.purchase_dates = purchase_dates;
 
-pub struct PendingItem {
-    pub namespace: Arc<String>,
-    pub catalog_id: Arc<String>,
-}
+    search::rebuild_order(state);
 
-pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<Message> {
-    let mut queue: VecDeque<_> = items
-        .iter()
-        .map(|item| PendingItem {
-            namespace: item.namespace.clone(),
-            catalog_id: item.catalog_item_id.clone(),
-        })
-        .collect();
-    let initial: Vec<_> = queue.drain(..CONCURRENT_LIMIT.min(queue.len())).collect();
-
-    let fetch_task = Task::batch(
-        initial
-            .iter()
-            .map(|item| fetch_game_info(state, &item.namespace, &item.catalog_id)),
-    );
-
-    state.pending_items = queue;
-    state.catalog_items = Some(Vec::new());
-    state.total_items = items.len();
-    state.inflight_fetches = initial.len();
-    state.purchase_dates = items
-        .iter()
-        .filter_map(|item| {
-            item.acquisition_date
-                .map(|date| (item.catalog_item_id.to_string(), date))
-        })
-        .collect();
-
+    let download_tasks = download_missing(state);
     let decode_task = images::decode_visible(state);
-    Task::batch([fetch_task, decode_task])
+    Task::batch([download_tasks, decode_task])
 }
 
-pub fn handle_game_info_failed(state: &mut State) -> Task<Message> {
-    state.inflight_fetches = state.inflight_fetches.saturating_sub(1);
-    // This item will never arrive: shrink the expected total so no phantom
-    // row is left reserved for it at the bottom of the grid.
-    state.total_items = state.total_items.saturating_sub(1);
-    advance_queue(state)
-}
-
-pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Message> {
-    state.inflight_fetches = state.inflight_fetches.saturating_sub(1);
-    log::info!("Loaded game: {}", &info.title);
-
-    let image_url = info
-        .key_images
-        .iter()
-        .find(|img| img.image_type == "DieselGameBoxTall")
-        .or_else(|| info.key_images.first())
-        .map(|img| img.url.clone());
-
+// Spawn one thumbnail download per item missing from the disk cache.
+// Decodes happen separately in `decode_visible`, so rows still swap in
+// atomically once their bytes are cached.
+fn download_missing(state: &State) -> Task<Message> {
+    let Some(items) = &state.catalog_items else {
+        return Task::none();
+    };
     let client = state.http_client.clone();
-    let id = info.id.clone();
 
-    if let Some(raw_url) = image_url {
-        if !state
-            .catalog_items
-            .as_ref()
-            .is_some_and(|items| items.iter().any(|item| item.id == id))
-        {
-            state.catalog_items.get_or_insert_with(Vec::new).push(info);
-        }
-
-        if state.image_library.get(&id).is_some() {
-            advance_queue(state)
-        } else {
+    let tasks = items
+        .iter()
+        .filter(|item| state.image_library.get(&item.id).is_none())
+        .filter_map(|item| {
+            let raw_url = item
+                .key_images
+                .iter()
+                .find(|img| img.image_type == "DieselGameBoxTall")
+                .or_else(|| item.key_images.first())
+                .map(|img| img.url.clone())?;
+            let id = item.id.clone();
+            let client = client.clone();
             let encoded_url = match url::Url::parse(&raw_url) {
                 Ok(parsed) => parsed.to_string(),
                 Err(_) => raw_url,
             };
-
-            let download_task = Task::future(async move {
+            Some(Task::future(async move {
                 let mut res = client.get_async(&encoded_url).await.ok();
-                if let Some(ref mut res) = res {
-                    if let Ok(bytes) = res.bytes().await {
-                        match images::resize_image(&bytes) {
-                            Ok(processed) => {
-                                let bytes = Arc::new(processed);
-                                return Message::ImageDownloaded(id, bytes);
-                            }
-                            Err(e) => {
-                                log::error!("Failed to process image for {}: {}", id, e);
-                            }
+                if let Some(ref mut res) = res
+                    && let Ok(bytes) = res.bytes().await
+                {
+                    match images::resize_image(&bytes) {
+                        Ok(processed) => {
+                            let bytes = Arc::new(processed);
+                            return Message::ImageDownloaded(id, bytes);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to process image for {}: {}", id, e);
                         }
                     }
                 }
                 Message::ImageDownloaded(id, Arc::new(Vec::new()))
-            });
+            }))
+        })
+        .collect::<Vec<_>>();
 
-            if let Some(next) = state.pending_items.pop_front() {
-                let fetch_task = fetch_game_info(state, &next.namespace, &next.catalog_id);
-                Task::batch([download_task, fetch_task])
-            } else {
-                download_task
-            }
-        }
-    } else {
-        log::warn!("No images found for {}", &info.title);
-        if !state
-            .catalog_items
-            .as_ref()
-            .is_some_and(|items| items.iter().any(|item| item.id == info.id))
-        {
-            state.catalog_items.get_or_insert_with(Vec::new).push(info);
-        }
-        advance_queue(state)
-    }
-}
-
-// Pop the next catalog fetch off the queue. When the last in-flight fetch
-// completes, sort once and show the grid instead of resorting per arrival.
-fn advance_queue(state: &mut State) -> Task<Message> {
-    let next = if let Some(next) = state.pending_items.pop_front() {
-        state.inflight_fetches += 1;
-        fetch_game_info(state, &next.namespace, &next.catalog_id)
-    } else {
-        Task::none()
-    };
-    if state.inflight_fetches == 0 {
-        Task::batch([next, finish_loading(state)])
-    } else {
-        next
-    }
-}
-
-fn finish_loading(state: &mut State) -> Task<Message> {
-    search::rebuild_order(state);
-    images::decode_visible(state)
+    Task::batch(tasks)
 }
 
 pub fn handle_scrolled(state: &mut State, offset_y: f32, width: f32, height: f32) -> Task<Message> {
@@ -162,32 +90,11 @@ pub fn load_library(http_client: &isahc::HttpClient, auth_data: &epic::AuthData)
     let access_token = auth_data.access_token.clone();
 
     Task::future(async move {
-        match epic::get_library_items(&client, &access_token).await {
-            Ok(items) => Message::LibraryLoaded(items),
+        match epic::get_library_catalog(&client, &access_token).await {
+            Ok(catalog) => Message::LibraryLoaded(catalog.items, catalog.purchase_dates),
             Err(e) => {
                 log::error!("Failed to get library items: {}", e);
                 Message::Ignored
-            }
-        }
-    })
-}
-
-fn fetch_game_info(
-    state: &State,
-    namespace: &Arc<String>,
-    catalog_id: &Arc<String>,
-) -> Task<Message> {
-    let client = state.http_client.clone();
-    let access_token = state.auth_data.as_ref().unwrap().access_token.clone();
-    let namespace = namespace.clone();
-    let catalog_id = catalog_id.clone();
-
-    Task::future(async move {
-        match epic::get_game_info(&client, &access_token, &namespace, &catalog_id).await {
-            Ok(info) => Message::GameInfoLoaded(info),
-            Err(e) => {
-                log::error!("Failed to get game info: {}", e);
-                Message::GameInfoFailed
             }
         }
     })

@@ -1,0 +1,53 @@
+query getUserLibrary(
+    $cursor: String
+    $includeCategories: [String]
+    $includeNs: [String]
+    $locale: String
+) {
+    Library {
+        libraryItems(
+            cursor: $cursor
+            params: {
+                includeCategories: $includeCategories
+                includeNs: $includeNs
+                includeMetadata: true
+            }
+        ) {
+            records {
+                acquisitionDate
+                catalogItem(locale: $locale) {
+                    id
+                    namespace
+                    title
+                    creationDate
+                    lastModifiedDate
+                    keyImages {
+                        type
+                        url
+                    }
+                    categories {
+                        path
+                    }
+                    releaseInfo {
+                        appId
+                        platform
+                        compatibleApps
+                    }
+                    customAttributes {
+                        key
+                        value
+                    }
+                    dlcItemList {
+                        id
+                    }
+                    mainGameItem {
+                        id
+                    }
+                }
+            }
+            responseMetadata {
+                nextCursor
+            }
+        }
+    }
+}

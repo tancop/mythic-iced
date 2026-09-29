@@ -1,13 +1,13 @@
 #![windows_subsystem = "windows"]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use iced::{Element, Font, Task, Theme};
 use smart_default::SmartDefault;
 
 use crate::images::PixelData;
-use crate::library::PendingItem;
+
 use crate::search::{FilterRule, SortKey};
 
 mod decode;
@@ -57,9 +57,8 @@ pub struct State {
     pub total_items: usize,
     #[default(images::ImageLibrary::empty())]
     pub image_library: images::ImageLibrary,
-    #[default(VecDeque::new())]
-    pub pending_items: VecDeque<PendingItem>,
-    // Outstanding catalog fetches; the grid sorts + shows once this drains.
+    // Set while the GraphQL library fetch is in flight; the grid shows
+    // `Loading...` until it completes.
     pub inflight_fetches: usize,
     #[default(0.0)]
     pub scroll_offset: f32,
@@ -96,11 +95,7 @@ enum Message {
     Ignored,
     StartLogin,
     SubmitToken(String),
-    LibraryLoaded(Vec<epic::LibraryItem>),
-    GameInfoLoaded(epic::CatalogItem),
-    // A catalog fetch failed: the item is skipped, but the queue must still
-    // advance or every item behind it would never load.
-    GameInfoFailed,
+    LibraryLoaded(Vec<epic::CatalogItem>, HashMap<String, epic::UtcDateTime>),
     ImageDownloaded(String, Arc<Vec<u8>>),
     Scrolled {
         offset_y: f32,
@@ -122,9 +117,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Ignored => Task::none(),
         Message::StartLogin => login::handle_start(state),
         Message::SubmitToken(token) => login::handle_submit(state, token),
-        Message::LibraryLoaded(items) => library::handle_loaded(state, items),
-        Message::GameInfoLoaded(info) => library::handle_game_info(state, info),
-        Message::GameInfoFailed => library::handle_game_info_failed(state),
+        Message::LibraryLoaded(items, purchase_dates) => {
+            library::handle_loaded(state, items, purchase_dates)
+        }
         Message::Scrolled {
             offset_y,
             width,
