@@ -32,6 +32,7 @@ pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<M
     state.pending_items = queue;
     state.catalog_items = Some(Vec::new());
     state.total_items = items.len();
+    state.inflight_fetches = initial.len();
     state.purchase_dates = items
         .iter()
         .filter_map(|item| {
@@ -45,17 +46,15 @@ pub fn handle_loaded(state: &mut State, items: Vec<epic::LibraryItem>) -> Task<M
 }
 
 pub fn handle_game_info_failed(state: &mut State) -> Task<Message> {
+    state.inflight_fetches = state.inflight_fetches.saturating_sub(1);
     // This item will never arrive: shrink the expected total so no phantom
     // row is left reserved for it at the bottom of the grid.
     state.total_items = state.total_items.saturating_sub(1);
-    if let Some(next) = state.pending_items.pop_front() {
-        fetch_game_info(state, &next.namespace, &next.catalog_id)
-    } else {
-        Task::none()
-    }
+    advance_queue(state)
 }
 
 pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Message> {
+    state.inflight_fetches = state.inflight_fetches.saturating_sub(1);
     log::info!("Loaded game: {}", &info.title);
 
     let image_url = info
@@ -76,20 +75,9 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
         {
             state.catalog_items.get_or_insert_with(Vec::new).push(info);
         }
-        search::rebuild_order(state);
 
         if state.image_library.get(&id).is_some() {
-            // Bytes already cached: decode now (covers app start with
-            // a warm cache, where no scroll event may ever fire).
-            let decode_task = images::decode_visible(state);
-            if let Some(next) = state.pending_items.pop_front() {
-                Task::batch([
-                    fetch_game_info(state, &next.namespace, &next.catalog_id),
-                    decode_task,
-                ])
-            } else {
-                decode_task
-            }
+            advance_queue(state)
         } else {
             let encoded_url = match url::Url::parse(&raw_url) {
                 Ok(parsed) => parsed.to_string(),
@@ -130,13 +118,29 @@ pub fn handle_game_info(state: &mut State, info: epic::CatalogItem) -> Task<Mess
         {
             state.catalog_items.get_or_insert_with(Vec::new).push(info);
         }
-        search::rebuild_order(state);
-        if let Some(next) = state.pending_items.pop_front() {
-            fetch_game_info(state, &next.namespace, &next.catalog_id)
-        } else {
-            Task::none()
-        }
+        advance_queue(state)
     }
+}
+
+// Pop the next catalog fetch off the queue. When the last in-flight fetch
+// completes, sort once and show the grid instead of resorting per arrival.
+fn advance_queue(state: &mut State) -> Task<Message> {
+    let next = if let Some(next) = state.pending_items.pop_front() {
+        state.inflight_fetches += 1;
+        fetch_game_info(state, &next.namespace, &next.catalog_id)
+    } else {
+        Task::none()
+    };
+    if state.inflight_fetches == 0 {
+        Task::batch([next, finish_loading(state)])
+    } else {
+        next
+    }
+}
+
+fn finish_loading(state: &mut State) -> Task<Message> {
+    search::rebuild_order(state);
+    images::decode_visible(state)
 }
 
 pub fn handle_scrolled(state: &mut State, offset_y: f32, width: f32, height: f32) -> Task<Message> {

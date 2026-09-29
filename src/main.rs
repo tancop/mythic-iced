@@ -59,6 +59,8 @@ pub struct State {
     pub image_library: images::ImageLibrary,
     #[default(VecDeque::new())]
     pub pending_items: VecDeque<PendingItem>,
+    // Outstanding catalog fetches; the grid sorts + shows once this drains.
+    pub inflight_fetches: usize,
     #[default(0.0)]
     pub scroll_offset: f32,
     #[default(1024.0)]

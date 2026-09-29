@@ -82,6 +82,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let Some(items) = &state.catalog_items else {
         return container(text!("Loading...")).center(Length::Fill).into();
     };
+    if state.inflight_fetches > 0 {
+        return container(text!("Loading...")).center(Length::Fill).into();
+    }
     let order = &state.order;
 
     let cols = cols_for_width(state.viewport_width);
