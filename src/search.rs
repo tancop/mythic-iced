@@ -110,6 +110,8 @@ pub fn effective_sort_key(state: &State) -> SortKey {
 
 pub fn set_sort_key(state: &mut State, key: SortKey) -> Task<Message> {
     state.sort_key = key;
+    // Searching is a sort (vs filter in Epic Store) so it should get replaced
+    state.search_query.clear();
     rebuild_order(state);
     crate::library::refresh_visible(state)
 }
