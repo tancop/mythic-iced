@@ -61,54 +61,52 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     // The grid is sized from the visible order, so the height always
     // matches what is actually shown.
-    container(
-        column![
-            toolbar,
-            virtual_grid::virtual_grid(
-                config,
-                GridViewport {
-                    width: state.viewport_width,
-                    height: state.viewport_height,
-                    scroll_offset: state.scroll_offset,
-                },
-                state.order.len(),
-                |position, card_w, card_h| {
-                    let catalog = &items[state.order[position]];
-                    if let Some(PixelData {
-                        width,
-                        height,
-                        pixels,
-                    }) = state.decoded_images.get(&catalog.id)
-                    {
-                        let handle = iced::widget::image::Handle::from_rgba(
-                            *width,
-                            *height,
-                            pixels.to_vec(),
-                        );
-                        let img = image(handle)
-                            .width(Length::Fill)
-                            .height(Length::Fill)
-                            .content_fit(iced::ContentFit::Cover);
-                        container(column![img, text!("{}", catalog.title).size(14).bold()])
-                            .width(Length::Fixed(card_w))
-                            .height(Length::Fixed(card_h))
-                            .clip(true)
-                            .into()
-                    } else {
-                        placeholder_card(card_w, card_h)
-                    }
-                },
-                |offset_y, width, height| Message::Scrolled {
-                    offset_y,
-                    width,
-                    height,
-                },
-            ),
-        ]
-        .spacing(config.spacing),
-    )
-    .padding(16)
-    .into()
+    let grid = virtual_grid::virtual_grid(
+        config,
+        GridViewport {
+            width: state.viewport_width,
+            height: state.viewport_height,
+            scroll_offset: state.scroll_offset,
+        },
+        state.order.len(),
+        |position, card_w, card_h| {
+            let catalog = &items[state.order[position]];
+            if let Some(PixelData {
+                width,
+                height,
+                pixels,
+            }) = state.decoded_images.get(&catalog.id)
+            {
+                let handle =
+                    iced::widget::image::Handle::from_rgba(*width, *height, pixels.to_vec());
+                let img = image(handle)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .content_fit(iced::ContentFit::Cover);
+                container(column![
+                    img,
+                    text!("{}", catalog.title)
+                        .bold()
+                        .wrapping(text::Wrapping::None)
+                ])
+                .width(Length::Fixed(card_w))
+                .height(Length::Fixed(card_h))
+                .clip(true)
+                .into()
+            } else {
+                placeholder_card(card_w, card_h)
+            }
+        },
+        |offset_y, width, height| Message::Scrolled {
+            offset_y,
+            width,
+            height,
+        },
+    );
+
+    container(column![toolbar, grid].spacing(config.spacing))
+        .padding(16)
+        .into()
 }
 
 fn placeholder_card(card_w: f32, card_h: f32) -> Element<'static, Message> {

@@ -77,8 +77,8 @@ pub fn library_path() -> PathBuf {
     dirs::cache_dir().unwrap().join("mythic").join("images.db")
 }
 
-const THUMB_WIDTH: u32 = 255;
-const THUMB_HEIGHT: u32 = 340;
+pub const THUMB_WIDTH: u32 = 255;
+pub const THUMB_HEIGHT: u32 = 340;
 
 pub fn resize_image(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
     let img = image::load_from_memory(bytes)?;

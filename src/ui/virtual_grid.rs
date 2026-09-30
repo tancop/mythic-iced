@@ -7,6 +7,8 @@ use iced::{
     widget::{column, container, row, scrollable, text},
 };
 
+use crate::{DEFAULT_TEXT_SIZE, images};
+
 /// Everything about the grid layout that a caller might want to tune.
 #[derive(Clone, Copy, Debug)]
 pub struct GridConfig {
@@ -23,7 +25,8 @@ pub const DEFAULT_CONFIG: GridConfig = GridConfig {
     target_card_width: 200.0,
     spacing: 8.0,
     buffer_rows: 5,
-    card_aspect: 340.0 / 255.0,
+    card_aspect: (images::THUMB_HEIGHT as f32 + DEFAULT_TEXT_SIZE as f32)
+        / images::THUMB_WIDTH as f32,
 };
 
 impl Default for GridConfig {

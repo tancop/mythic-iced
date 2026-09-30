@@ -35,6 +35,8 @@ pub const BOLD_FONT: Font = {
 
 pub const FA_SOLID: Font = Font::with_name("Font Awesome 7 Solid");
 
+pub const DEFAULT_TEXT_SIZE: u16 = 16;
+
 fn main() {
     env_logger::init();
 
