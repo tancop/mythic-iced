@@ -18,7 +18,8 @@ mod login;
 mod search;
 mod ui;
 
-const FONT_FILE: &[u8] = include_bytes!("../assets/Inter.ttf");
+const INTER_FONT_FILE: &[u8] = include_bytes!("../assets/Inter.ttf");
+const FA_SOLID_FILE: &[u8] = include_bytes!("../assets/Font Awesome 7 Solid.otf");
 
 pub const UI_FONT: Font = {
     let mut font = Font::with_name("Inter");
@@ -32,6 +33,8 @@ pub const BOLD_FONT: Font = {
     font
 };
 
+pub const FA_SOLID: Font = Font::with_name("Font Awesome 7 Solid");
+
 fn main() {
     env_logger::init();
 
@@ -40,7 +43,8 @@ fn main() {
     iced::application(boot, update, view)
         .title("Mythic")
         .theme(Theme::Custom(ui::get_theme().into()))
-        .font(FONT_FILE)
+        .font(INTER_FONT_FILE)
+        .font(FA_SOLID_FILE)
         .default_font(UI_FONT)
         .run()
         .unwrap();

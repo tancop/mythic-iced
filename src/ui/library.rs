@@ -1,6 +1,6 @@
 use iced::{
-    Alignment, Element, Length, Theme,
-    widget::{checkbox, column, container, image, pick_list, row, scrollable, text, text_input},
+    Alignment, Color, Element, Length, Theme,
+    widget::{column, container, image, pick_list, row, scrollable, text, text_input},
 };
 
 use iced::widget::container::Style;
@@ -8,8 +8,12 @@ use iced::widget::container::Style;
 use crate::{
     Message, State,
     images::PixelData,
-    search::{DLC_FILTERS, FilterRule, SORT_KEYS, effective_sort_key},
-    ui::TextWidgetExt,
+    search::{DLC_FILTERS, FilterRule, SortOption, effective_sort_key, sort_options},
+    ui::{
+        TextWidgetExt,
+        icons::{UP_DOWN_ARROW, icon_button},
+        theme::BRAND_COLOR,
+    },
 };
 
 pub const MIN_COLS: usize = 5;
@@ -62,13 +66,22 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .width(Length::Fill),
         text!("Sort:"),
         pick_list(
-            &SORT_KEYS[..],
-            Some(effective_sort_key(state)),
-            Message::SortKeySelected
+            sort_options(state.sort_reverse),
+            Some(SortOption {
+                key: effective_sort_key(state),
+                reversed: state.sort_reverse,
+            }),
+            |option| Message::SortKeySelected(option.key),
         ),
-        checkbox(state.sort_reverse)
-            .label("Reverse")
-            .on_toggle(Message::SortReverseToggled),
+        icon_button(
+            UP_DOWN_ARROW,
+            if state.sort_reverse {
+                BRAND_COLOR
+            } else {
+                Color::WHITE
+            },
+            Message::SortReverseToggled(!state.sort_reverse),
+        ),
         text!("Show:"),
         pick_list(
             &DLC_FILTERS[..],

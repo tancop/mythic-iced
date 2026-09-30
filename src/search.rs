@@ -19,15 +19,40 @@ pub enum SortKey {
     Search,
 }
 
-impl fmt::Display for SortKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SortKey::ReleaseDate => write!(f, "Release date"),
-            SortKey::PurchaseDate => write!(f, "Purchase date"),
-            SortKey::Title => write!(f, "Title A-Z"),
-            SortKey::Search => write!(f, "Search"),
+impl SortKey {
+    /// Direction-aware dropdown label, so the active direction is visible in
+    /// the options themselves (e.g. "Title A-Z" vs "Title Z-A").
+    pub fn label(self, reversed: bool) -> &'static str {
+        match (self, reversed) {
+            (SortKey::ReleaseDate, false) => "First released",
+            (SortKey::ReleaseDate, true) => "Last released",
+            (SortKey::PurchaseDate, false) => "First purchased",
+            (SortKey::PurchaseDate, true) => "Last purchased",
+            (SortKey::Title, false) => "Title A-Z",
+            (SortKey::Title, true) => "Title Z-A",
+            (SortKey::Search, _) => "Search",
         }
     }
+}
+
+/// A sort key paired with the current direction for the dropdown: `pick_list`
+/// renders options via `Display`, so the direction has to be part of the
+/// option value itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SortOption {
+    pub key: SortKey,
+    pub reversed: bool,
+}
+
+impl fmt::Display for SortOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.key.label(self.reversed))
+    }
+}
+
+/// Dropdown options reflecting the current direction.
+pub fn sort_options(reversed: bool) -> [SortOption; 3] {
+    SORT_KEYS.map(|key| SortOption { key, reversed })
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -194,6 +219,33 @@ pub fn relevance_score(state: &State, item: &CatalogItem) -> f64 {
     }
 
     score
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn labels_flip_with_direction() {
+        assert_eq!(SortKey::Title.label(false), "Title A-Z");
+        assert_eq!(SortKey::Title.label(true), "Title Z-A");
+        assert_eq!(SortKey::PurchaseDate.label(false), "First purchased");
+        assert_eq!(SortKey::PurchaseDate.label(true), "Last purchased");
+        assert_eq!(SortKey::ReleaseDate.label(false), "First released");
+        assert_eq!(SortKey::ReleaseDate.label(true), "Last released");
+        assert_eq!(SortKey::Search.label(false), "Search");
+        assert_eq!(SortKey::Search.label(true), "Search");
+    }
+
+    #[test]
+    fn sort_options_carry_direction() {
+        let options = sort_options(true);
+        assert_eq!(
+            options.map(|o| o.to_string()),
+            ["Last released", "Last purchased", "Title Z-A"]
+        );
+        assert!(options.iter().all(|o| o.reversed));
+    }
 }
 
 #[cfg(test)]

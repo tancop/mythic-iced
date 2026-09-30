@@ -1,5 +1,6 @@
 use iced::theme::Custom;
 
+mod icons;
 pub mod library;
 pub mod login;
 mod theme;
