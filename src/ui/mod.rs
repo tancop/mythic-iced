@@ -4,6 +4,7 @@ mod icons;
 pub mod library;
 pub mod login;
 mod theme;
+pub mod virtual_grid;
 
 pub fn get_theme() -> Custom {
     Custom::new("Mythic".into(), theme::MAIN_PALETTE)

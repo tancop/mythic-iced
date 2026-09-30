@@ -126,7 +126,10 @@ pub fn decode_visible(state: &mut State) -> Task<Message> {
     };
     let order = &state.order;
 
-    let cols = crate::ui::library::cols_for_width(state.viewport_width);
+    let cols = crate::ui::virtual_grid::columns(
+        &crate::ui::virtual_grid::GridConfig::default(),
+        state.viewport_width,
+    );
     let (lo, hi) = crate::library::visible_range(state);
 
     // One task per grid chunk so a whole row swaps in atomically instead of

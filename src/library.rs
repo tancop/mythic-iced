@@ -4,6 +4,7 @@ use std::sync::Arc;
 use iced::Task;
 use isahc::AsyncReadResponseExt;
 
+use crate::ui::virtual_grid::{self, GridConfig, GridViewport};
 use crate::{Message, State, epic, images, search};
 
 pub fn handle_loaded(
@@ -16,7 +17,6 @@ pub fn handle_loaded(
         item.search_key = search::build_search_key(&item.title);
     }
     state.catalog_items = Some(items);
-    state.total_items = state.catalog_items.as_ref().map(|v| v.len()).unwrap_or(0);
     state.inflight_fetches = 0;
     state.purchase_dates = purchase_dates;
 
@@ -108,14 +108,16 @@ pub fn visible_range(state: &State) -> (usize, usize) {
     if state.catalog_items.is_none() {
         return (0, 0);
     };
-    let pitch = crate::ui::library::row_pitch(state.viewport_width);
-    let cols = crate::ui::library::cols_for_width(state.viewport_width);
-    let total_rows = state.total_items / cols + (state.total_items % cols != 0) as usize;
-    let first_visible_row = (state.scroll_offset / pitch) as usize;
-    let visible_rows = (state.viewport_height / pitch) as usize + 1;
-    let lo = first_visible_row.saturating_sub(crate::ui::library::BUFFER_ROWS);
-    let hi = (first_visible_row + visible_rows + crate::ui::library::BUFFER_ROWS).min(total_rows);
-    (lo, hi)
+    let config = GridConfig::default();
+    virtual_grid::visible_range(
+        &config,
+        &GridViewport {
+            width: state.viewport_width,
+            height: state.viewport_height,
+            scroll_offset: state.scroll_offset,
+        },
+        state.order.len(),
+    )
 }
 
 fn evict_stale(state: &mut State) {
@@ -128,7 +130,10 @@ fn evict_stale(state: &mut State) {
 
     let mut visible_ids = HashSet::new();
     for chunk in order
-        .chunks(crate::ui::library::cols_for_width(state.viewport_width))
+        .chunks(virtual_grid::columns(
+            &GridConfig::default(),
+            state.viewport_width,
+        ))
         .skip(lo)
         .take(hi.saturating_sub(lo))
     {

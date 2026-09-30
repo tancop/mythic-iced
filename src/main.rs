@@ -59,8 +59,6 @@ pub struct State {
     pub page: Page,
     pub exchange_code: String,
     pub catalog_items: Option<Vec<epic::CatalogItem>>,
-    // Final library size, known at load time
-    pub total_items: usize,
     #[default(images::ImageLibrary::empty())]
     pub image_library: images::ImageLibrary,
     // Set while the GraphQL library fetch is in flight; the grid shows
