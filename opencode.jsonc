@@ -4,7 +4,7 @@
     "rust": {
       "command": ["rust-analyzer"],
       "env": {
-        "RUST_LOG": "debug,naga=off,wgpu=off,iced_wgpu=off,tracing=off,cosmic_text=off"
+        "RUST_LOG": "debug,naga=off,wgpu=off,iced_wgpu=off,tracing=off,cosmic_text=off,isahc=warn"
       }
     }
   }
