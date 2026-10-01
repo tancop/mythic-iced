@@ -1,6 +1,6 @@
 use iced::{
     Element, Length,
-    widget::{Space, column, container, image, row, scrollable, text},
+    widget::{column, container, image, row, scrollable, text},
 };
 
 use crate::{
@@ -82,6 +82,26 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .height(Length::Fixed(cover_width * GRID_CONFIG.card_aspect))
             .into(),
     };
+
+    // Products without a store page only have a name and artwork.
+    if !details.has_store_page() {
+        return container(
+            scrollable(
+                row![
+                    cover,
+                    column![
+                        text!("{}", title).bold().size(24).width(Length::Fill),
+                        text!("No information available").width(Length::Fill),
+                    ]
+                ]
+                .spacing(16),
+            )
+            .height(Length::Fill)
+            .width(Length::Fill),
+        )
+        .padding(16)
+        .into();
+    }
 
     let mut content = column![
         row![

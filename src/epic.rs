@@ -558,34 +558,34 @@ struct DetailsConfigEntry {
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DetailsBanner {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub description: String,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SocialLink {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub platform: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub url: String,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreTag {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub group_name: String,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TechRequirement {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub title: String,
     #[serde(default)]
     pub minimum: Option<String>,
@@ -608,15 +608,15 @@ pub struct TechRequirements {
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GameDetails {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub product_display_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub short_description: String,
     #[serde(default)]
     pub banner: Option<DetailsBanner>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub developer_display_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub publisher_display_name: String,
     #[serde(default)]
     pub pc_release_date: Option<String>,
@@ -641,6 +641,15 @@ pub struct GameDetails {
 }
 
 impl GameDetails {
+    /// Products without a store page (e.g. legacy GTA 5) come back with
+    /// almost every field null; `pcReleaseDate` is never null on normal
+    /// games, so its absence marks them.
+    pub fn has_store_page(&self) -> bool {
+        self.pc_release_date
+            .as_deref()
+            .is_some_and(|date| !date.is_empty())
+    }
+
     /// Long blurb when the product has one, else the short description.
     pub fn description(&self) -> &str {
         self.banner
@@ -1088,6 +1097,60 @@ mod tests {
                 .and_then(|reqs| reqs.macos.as_deref())
                 .is_none()
         );
+    }
+
+    #[test]
+    fn product_without_store_page_parses_and_is_detected() {
+        // Legacy GTA 5: almost every field is explicit null.
+        let bytes = serde_json::json!({
+            "data": {
+                "Product": {
+                    "sandbox": {
+                        "configuration": [{
+                            "configs": {
+                                "banner": null,
+                                "developerDisplayName": null,
+                                "effectiveDate": null,
+                                "externalPlatformLaunchOptions": null,
+                                "gameWebsite": null,
+                                "legalText": null,
+                                "pcReleaseDate": null,
+                                "productDisplayName": "Grand Theft Auto V",
+                                "privacyLink": null,
+                                "publisherDisplayName": null,
+                                "shortDescription": null,
+                                "socialLinks": null,
+                                "supportedAudio": null,
+                                "supportedText": null,
+                                "tags": [],
+                                "technicalRequirements": null,
+                                "theme": {
+                                    "dark": {"accent": "#0074E4", "theme": "gray"},
+                                    "light": {"accent": "#0074E4", "theme": "gray"},
+                                    "preferredMode": "dark"
+                                }
+                            }
+                        }]
+                    }
+                }
+            }
+        });
+        let resp: DetailsGqlResponse =
+            serde_json::from_value(bytes).expect("legacy GTA 5 response parses");
+        let details = resp
+            .data
+            .expect("data")
+            .product
+            .sandbox
+            .configuration
+            .into_iter()
+            .find_map(|entry| entry.configs)
+            .expect("configs");
+
+        assert_eq!(details.product_display_name, "Grand Theft Auto V");
+        assert!(!details.has_store_page());
+        assert!(details.release_date().is_none());
+        assert_eq!(details.description(), "");
     }
 
     #[test]

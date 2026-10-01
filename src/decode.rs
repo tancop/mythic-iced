@@ -172,6 +172,17 @@ where
     }
 }
 
+/// Missing *or* explicit-null value falls back to `Default::default`.
+/// (`#[serde(default)]` alone only covers missing keys, but the details
+/// query returns explicit nulls for products without a store page.)
+pub fn deserialize_null_default<'de, D, T>(de: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(de)?.unwrap_or_default())
+}
+
 /// Deserializes game category lists like [ {"path": "games"} ]; null becomes
 /// an empty list instead of failing the enclosing record.
 pub fn deserialize_path_list<'de, D>(de: D) -> Result<Vec<String>, D::Error>
