@@ -588,9 +588,9 @@ pub struct TechRequirement {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
-    pub minimum: String,
+    pub minimum: Option<String>,
     #[serde(default)]
-    pub recommended: String,
+    pub recommended: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
@@ -1075,7 +1075,12 @@ mod tests {
             .iter()
             .find(|req| req.title == "Storage")
             .expect("storage row");
-        assert!(storage.minimum.contains("1 GB available space"));
+        assert!(
+            storage
+                .minimum
+                .as_deref()
+                .is_some_and(|v| v.contains("1 GB available space"))
+        );
         assert!(
             details
                 .technical_requirements

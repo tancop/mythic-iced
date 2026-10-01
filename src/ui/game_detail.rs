@@ -1,6 +1,6 @@
 use iced::{
     Element, Length,
-    widget::{column, container, image, row, scrollable, text},
+    widget::{Space, column, container, image, row, scrollable, text},
 };
 
 use crate::{
@@ -20,17 +20,25 @@ fn meta_row<'a>(label: &str, value: &str) -> Element<'a, Message> {
         .into()
 }
 
+fn is_none_or_empty(value: &Option<String>) -> bool {
+    value.as_deref().is_none_or(|v| v.is_empty())
+}
+
 fn requirements<'a>(platform: &str, reqs: &[TechRequirement]) -> Element<'a, Message> {
     let mut body = column![text!("System requirements ({platform})").bold()].spacing(4);
     for req in reqs {
-        if req.minimum.is_empty() && req.recommended.is_empty() {
+        if is_none_or_empty(&req.minimum) && is_none_or_empty(&req.recommended) {
             continue;
         }
         body = body.push(
             column![
                 text!("{}", req.title).bold().size(14),
-                text!("Minimum: {}", req.minimum).size(14),
-                text!("Recommended: {}", req.recommended).size(14),
+                text!("Minimum: {}", req.minimum.as_deref().unwrap_or("--")).size(14),
+                text!(
+                    "Recommended: {}",
+                    req.recommended.as_deref().unwrap_or("--")
+                )
+                .size(14),
             ]
             .spacing(2),
         );
