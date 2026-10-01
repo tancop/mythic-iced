@@ -46,13 +46,13 @@ fn main() {
     iced::application(boot, update, view)
         .title("Mythic")
         .theme(Theme::Custom(ui::get_theme().into()))
-        .font(INTER_FONT_FILE)
-        .font(FA_SOLID_FILE)
         .settings(Settings {
             default_text_size: DEFAULT_TEXT_SIZE.into(),
             default_font: UI_FONT,
             ..Default::default()
         })
+        .font(INTER_FONT_FILE)
+        .font(FA_SOLID_FILE)
         .run()
         .unwrap();
 }
