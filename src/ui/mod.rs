@@ -1,8 +1,10 @@
 use iced::theme::Custom;
 
+pub mod game_detail;
 mod icons;
 pub mod library;
 pub mod login;
+pub mod navbar;
 mod theme;
 pub mod virtual_grid;
 

@@ -6,7 +6,7 @@ use isahc::AsyncReadResponseExt;
 
 use crate::ui::library as library_ui;
 use crate::ui::virtual_grid::{self, GridViewport};
-use crate::{Message, State, epic, images, search};
+use crate::{Message, Page, State, epic, images, search};
 
 pub fn handle_loaded(
     state: &mut State,
@@ -20,6 +20,8 @@ pub fn handle_loaded(
     state.catalog_items = Some(items);
     state.inflight_fetches = 0;
     state.purchase_dates = purchase_dates;
+    state.focused_game_idx = None;
+    state.details_error = false;
 
     search::rebuild_order(state);
 
@@ -81,6 +83,61 @@ pub fn handle_scrolled(state: &mut State, offset_y: f32, width: f32, height: f32
     state.viewport_width = width;
     state.viewport_height = height;
     refresh_visible(state)
+}
+
+/// Open the detail page for one catalog item, fetching its store-page
+/// details unless they are already cached for the namespace.
+pub fn handle_game_selected(state: &mut State, index: usize) -> Task<Message> {
+    let Some(items) = &state.catalog_items else {
+        return Task::none();
+    };
+    let Some(item) = items.get(index) else {
+        return Task::none();
+    };
+    let namespace = item.namespace.clone();
+
+    state.focused_game_idx = Some(index);
+    state.details_error = false;
+    state.page = Page::GameDetail;
+
+    if state.game_details.contains_key(&namespace) {
+        return Task::none();
+    }
+    let Some(token) = state
+        .auth_data
+        .as_ref()
+        .map(|auth| auth.access_token.clone())
+    else {
+        return Task::none();
+    };
+    let client = state.http_client.clone();
+
+    Task::future(async move {
+        match epic::get_game_details(&client, &token, &namespace).await {
+            Ok(details) => Message::GameDetailsLoaded {
+                namespace,
+                details: Box::new(details),
+            },
+            Err(e) => {
+                log::error!("Failed to get game details: {}", e);
+                Message::GameDetailsFailed
+            }
+        }
+    })
+}
+
+pub fn handle_details_loaded(
+    state: &mut State,
+    namespace: String,
+    details: Box<epic::GameDetails>,
+) -> Task<Message> {
+    state.game_details.insert(namespace, *details);
+    Task::none()
+}
+
+pub fn handle_details_failed(state: &mut State) -> Task<Message> {
+    state.details_error = true;
+    Task::none()
 }
 
 // Drop off-screen decodes and decode the current window. Used after scrolls

@@ -511,6 +511,211 @@ fn merge_library_pages(mut pages: Vec<LibraryPage>) -> LibraryCatalog {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DetailsVariables {
+    locale: String,
+    sandbox_id: String,
+}
+
+#[derive(Serialize)]
+struct DetailsRequest<'a> {
+    query: &'a str,
+    variables: DetailsVariables,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetailsGqlResponse {
+    data: Option<DetailsData>,
+    #[serde(default)]
+    errors: Option<Vec<GqlError>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetailsData {
+    #[serde(rename = "Product")]
+    product: DetailsProduct,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetailsProduct {
+    sandbox: DetailsSandbox,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetailsSandbox {
+    // Entries for other configuration fragments come back as `{}`.
+    #[serde(default)]
+    configuration: Vec<DetailsConfigEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetailsConfigEntry {
+    #[serde(default)]
+    configs: Option<GameDetails>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DetailsBanner {
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SocialLink {
+    #[serde(default)]
+    pub platform: String,
+    #[serde(default)]
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreTag {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub group_name: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TechRequirement {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub minimum: String,
+    #[serde(default)]
+    pub recommended: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TechRequirements {
+    #[serde(default)]
+    pub windows: Option<Vec<TechRequirement>>,
+    #[serde(default)]
+    pub macos: Option<Vec<TechRequirement>>,
+}
+
+/// Store-page details for one product (`sandboxId` is the catalog
+/// `namespace`). Only the fields the detail view shows are modeled;
+/// everything else the query returns is ignored.
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GameDetails {
+    #[serde(default)]
+    pub product_display_name: String,
+    #[serde(default)]
+    pub short_description: String,
+    #[serde(default)]
+    pub banner: Option<DetailsBanner>,
+    #[serde(default)]
+    pub developer_display_name: String,
+    #[serde(default)]
+    pub publisher_display_name: String,
+    #[serde(default)]
+    pub pc_release_date: Option<String>,
+    #[serde(default)]
+    pub effective_date: Option<String>,
+    #[serde(default)]
+    pub game_website: Option<String>,
+    #[serde(default)]
+    pub privacy_link: Option<String>,
+    #[serde(default)]
+    pub supported_text: Option<Vec<String>>,
+    #[serde(default)]
+    pub supported_audio: Option<Vec<String>>,
+    #[serde(default)]
+    pub social_links: Option<Vec<SocialLink>>,
+    #[serde(default)]
+    pub tags: Option<Vec<StoreTag>>,
+    #[serde(default)]
+    pub technical_requirements: Option<TechRequirements>,
+    #[serde(default)]
+    pub legal_text: Option<String>,
+}
+
+impl GameDetails {
+    /// Long blurb when the product has one, else the short description.
+    pub fn description(&self) -> &str {
+        self.banner
+            .as_ref()
+            .map(|banner| banner.description.as_str())
+            .filter(|description| !description.is_empty())
+            .unwrap_or(&self.short_description)
+    }
+
+    /// Release date as `YYYY-MM-DD` when the value carries a time part.
+    pub fn release_date(&self) -> Option<&str> {
+        self.pc_release_date
+            .as_deref()
+            .or(self.effective_date.as_deref())
+            .map(|date| date.get(..10).unwrap_or(date))
+    }
+}
+
+/// Fetch one product's store-page details. `sandbox_id` is the catalog
+/// `namespace`; `locale` is always `en` for now and `templateId` is left
+/// unset. Same store GraphQL endpoint/auth as the library fetch.
+pub async fn get_game_details(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    sandbox_id: &str,
+) -> anyhow::Result<GameDetails> {
+    let body = serde_json::to_vec(&DetailsRequest {
+        query: DETAILS_QUERY,
+        variables: DetailsVariables {
+            locale: "en".to_string(),
+            sandbox_id: sandbox_id.to_string(),
+        },
+    })?;
+
+    log::debug!("fetching game details for sandbox_id: {}", sandbox_id);
+
+    let req = Request::post(STORE_GQL_URL)
+        .bearer_auth(auth_token)
+        .user_agent(STORE_USER_AGENT)
+        .content_type(ContentType::Json)
+        .body(body)
+        .unwrap();
+    let mut res = client.send_async(req).await?;
+    let bytes = res.bytes().await?;
+
+    log::debug!(
+        "game details gql response: {:?}",
+        str::from_utf8(&bytes).unwrap_or("<non-utf8>")
+    );
+
+    let trimmed = trim_trailing_whitespace(&bytes);
+    let gql = serde_json::from_slice::<DetailsGqlResponse>(trimmed).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to parse game details response ({} bytes): {e}",
+            bytes.len()
+        )
+    })?;
+    if let Some(errors) = gql.errors
+        && !errors.is_empty()
+    {
+        let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+        bail!("game details GraphQL query failed: {}", msgs.join("; "));
+    }
+    let Some(data) = gql.data else {
+        bail!("game details GraphQL response missing data");
+    };
+
+    data.product
+        .sandbox
+        .configuration
+        .into_iter()
+        .find_map(|entry| entry.configs)
+        .ok_or_else(|| anyhow::anyhow!("game details response has no StoreConfiguration"))
+}
+
 const MANIFEST_URL: &'static str = formatcp!(
     "https://{}/launcher/api/public/assets/v2/platform/Windows",
     LAUNCHER_HOST
@@ -821,6 +1026,63 @@ mod tests {
         assert_eq!(titles, ["First", "Second"]);
         assert!(catalog.purchase_dates.contains_key("a"));
         assert!(catalog.purchase_dates.contains_key("b"));
+    }
+
+    #[test]
+    fn game_details_deserialize_from_example() {
+        let bytes = std::fs::read("game_detail.json").unwrap();
+        let resp: DetailsGqlResponse = serde_json::from_slice(&bytes).unwrap();
+        let configs: Vec<_> = resp
+            .data
+            .expect("data")
+            .product
+            .sandbox
+            .configuration
+            .into_iter()
+            .filter_map(|entry| entry.configs)
+            .collect();
+        // The other configuration fragments come back as `{}`.
+        assert_eq!(configs.len(), 1);
+        let details = &configs[0];
+
+        assert_eq!(details.product_display_name, "MudRunner");
+        assert_eq!(details.developer_display_name, "Saber Interactive");
+        assert_eq!(details.publisher_display_name, "Focus Entertainment");
+        assert!(details.short_description.contains("ultimate off-road"));
+        // No banner blurb here, so the short description is used.
+        assert_eq!(details.description(), details.short_description.as_str());
+        assert!(details.release_date().is_none());
+
+        let tags: Vec<_> = details
+            .tags
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|tag| tag.name.as_str())
+            .collect();
+        assert!(tags.contains(&"Single Player"));
+        assert!(tags.contains(&"Cloud Saves"));
+
+        let languages = details.supported_text.as_deref().unwrap_or_default();
+        assert!(languages.contains(&"English".to_string()));
+
+        let windows = details
+            .technical_requirements
+            .as_ref()
+            .and_then(|reqs| reqs.windows.as_deref())
+            .unwrap_or_default();
+        let storage = windows
+            .iter()
+            .find(|req| req.title == "Storage")
+            .expect("storage row");
+        assert!(storage.minimum.contains("1 GB available space"));
+        assert!(
+            details
+                .technical_requirements
+                .as_ref()
+                .and_then(|reqs| reqs.macos.as_deref())
+                .is_none()
+        );
     }
 
     #[test]

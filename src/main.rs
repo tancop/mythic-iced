@@ -37,6 +37,7 @@ pub const FA_SOLID: Font = Font::with_name("Font Awesome 7 Solid");
 
 pub const DEFAULT_TEXT_SIZE: u32 = 16;
 pub const LIBRARY_TITLE_TEXT_SIZE: u32 = 14;
+pub const HEADING_TEXT_SIZE: u32 = 18;
 
 fn main() {
     env_logger::init();
@@ -93,12 +94,20 @@ pub struct State {
     // Acquisition dates by catalog id, for purchase-date sorting
     #[default(HashMap::new())]
     pub purchase_dates: HashMap<String, epic::UtcDateTime>,
+
+    pub focused_game_idx: Option<usize>,
+    // Store-page details by namespace (sandbox id), fetched on demand.
+    #[default(HashMap::new())]
+    pub game_details: HashMap<String, epic::GameDetails>,
+    pub details_error: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Library,
     Login,
     PasteToken,
+    GameDetail,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +130,13 @@ pub enum Message {
     SortReverseToggled(bool),
     DlcFilterSelected(FilterRule),
     SearchQueryChanged(String),
+    GameSelected(usize),
+    GameDetailsLoaded {
+        namespace: String,
+        details: Box<epic::GameDetails>,
+    },
+    GameDetailsFailed,
+    Navigate(Page),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -144,14 +160,28 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::SortReverseToggled(reverse) => search::set_sort_reverse(state, reverse),
         Message::DlcFilterSelected(rule) => search::set_dlc_filter(state, rule),
         Message::SearchQueryChanged(query) => search::set_search_query(state, query),
+        Message::GameSelected(index) => library::handle_game_selected(state, index),
+        Message::GameDetailsLoaded { namespace, details } => {
+            library::handle_details_loaded(state, namespace, details)
+        }
+        Message::GameDetailsFailed => library::handle_details_failed(state),
+        Message::Navigate(page) => {
+            state.page = page;
+            Task::none()
+        }
     }
 }
 
 fn view(state: &State) -> Element<'_, Message> {
     match state.page {
-        Page::Library => ui::library::view(state),
+        Page::Library => {
+            iced::widget::column![ui::navbar::view(state), ui::library::view(state),].into()
+        }
         Page::Login => ui::login::view(state),
         Page::PasteToken => ui::login::view_paste_token(state),
+        Page::GameDetail => {
+            iced::widget::column![ui::navbar::view(state), ui::game_detail::view(state)].into()
+        }
     }
 }
 

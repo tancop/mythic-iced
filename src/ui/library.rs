@@ -1,6 +1,6 @@
 use iced::{
     Alignment, Color, Element, Length, Theme,
-    widget::{column, container, image, pick_list, row, text, text_input},
+    widget::{column, container, image, mouse_area, pick_list, row, text, text_input},
 };
 
 use iced::widget::container::Style;
@@ -27,7 +27,6 @@ pub const GRID_CONFIG: GridConfig = GridConfig {
 
 pub fn view(state: &State) -> Element<'_, Message> {
     let toolbar = row![
-        text!("Library"),
         text_input("Search...", &state.search_query)
             .on_input(Message::SearchQueryChanged)
             .width(Length::Fill),
@@ -77,8 +76,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
         },
         state.order.len(),
         |position, card_w, card_h| {
-            let catalog = &items[state.order[position]];
-            if let Some(PixelData {
+            let index = state.order[position];
+            let catalog = &items[index];
+            let card: Element<'_, Message> = if let Some(PixelData {
                 width,
                 height,
                 pixels,
@@ -103,7 +103,10 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 .into()
             } else {
                 placeholder_card(card_w, card_h)
-            }
+            };
+            mouse_area(card)
+                .on_press(Message::GameSelected(index))
+                .into()
         },
         |offset_y, width, height| Message::Scrolled {
             offset_y,

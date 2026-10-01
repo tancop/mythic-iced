@@ -29,11 +29,6 @@ query getGameDetails(
                             }
                         }
                         gameWebsite
-                        keyImages {
-                            type
-                            url
-                            alt
-                        }
                         legalText
                         pcReleaseDate
                         productDisplayName
