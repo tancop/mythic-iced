@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use iced::{Element, Font, Task, Theme};
+use iced::{Element, Font, Settings, Task, Theme};
 use smart_default::SmartDefault;
 
 use crate::images::PixelData;
@@ -35,7 +35,8 @@ pub const BOLD_FONT: Font = {
 
 pub const FA_SOLID: Font = Font::with_name("Font Awesome 7 Solid");
 
-pub const DEFAULT_TEXT_SIZE: u16 = 16;
+pub const DEFAULT_TEXT_SIZE: u32 = 16;
+pub const LIBRARY_TITLE_TEXT_SIZE: u32 = 14;
 
 fn main() {
     env_logger::init();
@@ -47,7 +48,11 @@ fn main() {
         .theme(Theme::Custom(ui::get_theme().into()))
         .font(INTER_FONT_FILE)
         .font(FA_SOLID_FILE)
-        .default_font(UI_FONT)
+        .settings(Settings {
+            default_text_size: DEFAULT_TEXT_SIZE.into(),
+            default_font: UI_FONT,
+            ..Default::default()
+        })
         .run()
         .unwrap();
 }

@@ -4,7 +4,8 @@ use std::sync::Arc;
 use iced::Task;
 use isahc::AsyncReadResponseExt;
 
-use crate::ui::virtual_grid::{self, GridConfig, GridViewport};
+use crate::ui::library as library_ui;
+use crate::ui::virtual_grid::{self, GridViewport};
 use crate::{Message, State, epic, images, search};
 
 pub fn handle_loaded(
@@ -108,7 +109,7 @@ pub fn visible_range(state: &State) -> (usize, usize) {
     if state.catalog_items.is_none() {
         return (0, 0);
     };
-    let config = GridConfig::default();
+    let config = library_ui::GRID_CONFIG;
     virtual_grid::visible_range(
         &config,
         &GridViewport {
@@ -131,7 +132,7 @@ fn evict_stale(state: &mut State) {
     let mut visible_ids = HashSet::new();
     for chunk in order
         .chunks(virtual_grid::columns(
-            &GridConfig::default(),
+            &library_ui::GRID_CONFIG,
             state.viewport_width,
         ))
         .skip(lo)

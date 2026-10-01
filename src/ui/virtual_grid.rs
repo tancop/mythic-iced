@@ -21,20 +21,6 @@ pub struct GridConfig {
     pub card_aspect: f32,
 }
 
-pub const DEFAULT_CONFIG: GridConfig = GridConfig {
-    target_card_width: 200.0,
-    spacing: 8.0,
-    buffer_rows: 5,
-    card_aspect: (images::THUMB_HEIGHT as f32 + DEFAULT_TEXT_SIZE as f32)
-        / images::THUMB_WIDTH as f32,
-};
-
-impl Default for GridConfig {
-    fn default() -> Self {
-        DEFAULT_CONFIG
-    }
-}
-
 /// Current scroll state, fed back through the scrollable's `on_scroll`.
 #[derive(Clone, Copy, Debug)]
 pub struct GridViewport {
@@ -151,7 +137,12 @@ pub fn virtual_grid<'a, Message: 'a>(
 mod tests {
     use super::*;
 
-    const CONFIG: GridConfig = DEFAULT_CONFIG;
+    const CONFIG: GridConfig = GridConfig {
+        target_card_width: 200.0,
+        spacing: 8.0,
+        buffer_rows: 5,
+        card_aspect: 340.0 / 255.0,
+    };
 
     #[test]
     fn columns_scale_without_clamp() {

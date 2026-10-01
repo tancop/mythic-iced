@@ -6,8 +6,8 @@ use iced::{
 use iced::widget::container::Style;
 
 use crate::{
-    Message, State,
-    images::PixelData,
+    LIBRARY_TITLE_TEXT_SIZE, Message, State,
+    images::{self, PixelData},
     search::{DLC_FILTERS, SortOption, effective_sort_key, sort_options},
     ui::{
         TextWidgetExt,
@@ -17,8 +17,15 @@ use crate::{
     },
 };
 
+pub const GRID_CONFIG: GridConfig = GridConfig {
+    target_card_width: 200.0,
+    spacing: 8.0,
+    buffer_rows: 5,
+    card_aspect: (images::THUMB_HEIGHT as f32 + LIBRARY_TITLE_TEXT_SIZE as f32)
+        / images::THUMB_WIDTH as f32,
+};
+
 pub fn view(state: &State) -> Element<'_, Message> {
-    let config = GridConfig::default();
     let toolbar = row![
         text!("Library"),
         text_input("Search...", &state.search_query)
@@ -49,7 +56,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             Message::DlcFilterSelected
         ),
     ]
-    .spacing(config.spacing)
+    .spacing(GRID_CONFIG.spacing)
     .align_y(Alignment::Center);
 
     let Some(items) = &state.catalog_items else {
@@ -62,7 +69,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     // The grid is sized from the visible order, so the height always
     // matches what is actually shown.
     let grid = virtual_grid::virtual_grid(
-        config,
+        GRID_CONFIG,
         GridViewport {
             width: state.viewport_width,
             height: state.viewport_height,
@@ -87,6 +94,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
                     img,
                     text!("{}", catalog.title)
                         .bold()
+                        .size(LIBRARY_TITLE_TEXT_SIZE)
                         .wrapping(text::Wrapping::None)
                 ])
                 .width(Length::Fixed(card_w))
@@ -104,7 +112,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         },
     );
 
-    container(column![toolbar, grid].spacing(config.spacing))
+    container(column![toolbar, grid].spacing(GRID_CONFIG.spacing))
         .padding(16)
         .into()
 }
