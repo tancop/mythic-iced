@@ -133,24 +133,34 @@ pub fn effective_sort_key(state: &State) -> SortKey {
     }
 }
 
+/// Resets the tracked offset, drives the real scrollbar to the top, and
+/// refreshes the visible cards.
+fn scroll_and_refresh(state: &mut State) -> Task<Message> {
+    state.scroll_offset = 0.0;
+    Task::batch([
+        crate::ui::virtual_grid::scroll_to_top(),
+        crate::library::refresh_visible(state),
+    ])
+}
+
 pub fn set_sort_key(state: &mut State, key: SortKey) -> Task<Message> {
     state.sort_key = key;
     // Searching is a sort (vs filter in Epic Store) so it should get replaced
     state.search_query.clear();
     rebuild_order(state);
-    crate::library::refresh_visible(state)
+    scroll_and_refresh(state)
 }
 
 pub fn set_sort_reverse(state: &mut State, reverse: bool) -> Task<Message> {
     state.sort_reverse = reverse;
     rebuild_order(state);
-    crate::library::refresh_visible(state)
+    scroll_and_refresh(state)
 }
 
 pub fn set_dlc_filter(state: &mut State, rule: FilterRule) -> Task<Message> {
     state.filter_dlc = rule;
     rebuild_order(state);
-    crate::library::refresh_visible(state)
+    scroll_and_refresh(state)
 }
 
 pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
@@ -158,7 +168,7 @@ pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
     // refreshing the order, so real search only needs an is_included case.
     state.search_query = query;
     rebuild_order(state);
-    crate::library::refresh_visible(state)
+    scroll_and_refresh(state)
 }
 
 const WORD_BONUS_SCALE: f64 = 0.1;

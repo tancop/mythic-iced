@@ -102,7 +102,7 @@ pub enum Page {
 }
 
 #[derive(Clone, Debug)]
-enum Message {
+pub enum Message {
     Ignored,
     StartLogin,
     SubmitToken(String),

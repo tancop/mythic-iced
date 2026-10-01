@@ -3,11 +3,21 @@
 //! stays stable while content streams in.
 
 use iced::{
-    Element, Length,
-    widget::{column, container, row, scrollable, text},
+    Element, Length, Task,
+    widget::{
+        column, container, operation::scroll_to, row, scrollable, scrollable::AbsoluteOffset, text,
+    },
 };
 
-use crate::{DEFAULT_TEXT_SIZE, images};
+/// Stable id of the grid scrollable, so sort/search/filter changes can drive
+/// it back to the top programmatically.
+pub const GRID_SCROLL_ID: &str = "library-grid";
+
+/// Task that really moves the grid scrollbar to the top (setting
+/// `scroll_offset` alone only affects thumbnail loading, not the widget).
+pub fn scroll_to_top<Message>() -> Task<Message> {
+    scroll_to(GRID_SCROLL_ID, AbsoluteOffset { x: 0.0, y: 0.0 })
+}
 
 /// Everything about the grid layout that a caller might want to tune.
 #[derive(Clone, Copy, Debug)]
@@ -124,6 +134,7 @@ pub fn virtual_grid<'a, Message: 'a>(
             .height(Length::Fixed(bottom_pad))
             .width(Length::Fill),
     ])
+    .id(GRID_SCROLL_ID)
     .height(Length::Fill)
     .width(Length::Fill)
     .on_scroll(move |scroll| {
