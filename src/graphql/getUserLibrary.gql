@@ -14,6 +14,7 @@ query getUserLibrary(
             }
         ) {
             records {
+                sandboxName
                 acquisitionDate
                 catalogItem(locale: $locale) {
                     id

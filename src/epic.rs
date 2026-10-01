@@ -195,7 +195,8 @@ pub struct LibraryCatalog {
 }
 
 const STORE_GQL_URL: &'static str = formatcp!("https://{}/graphql", STORE_GQL_HOST);
-const LIBRARY_QUERY: &str = include_str!("graphql/library.gql");
+const LIBRARY_QUERY: &str = include_str!("graphql/getUserLibrary.gql");
+const DETAILS_QUERY: &str = include_str!("graphql/getGameDetails.gql");
 
 fn trim_trailing_whitespace(bytes: &[u8]) -> &[u8] {
     let mut end = bytes.len();

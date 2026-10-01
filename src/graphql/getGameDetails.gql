@@ -1,0 +1,82 @@
+query getGameDetails(
+    $includeCriticReviews: Boolean = false
+    $locale: String!
+    $sandboxId: String!
+    $templateId: String
+) {
+    Product {
+        sandbox(sandboxId: $sandboxId) {
+            configuration(locale: $locale, templateId: $templateId) {
+                ... on StoreConfiguration {
+                    configs {
+                        banner {
+                            description
+                            link {
+                                src
+                                title
+                            }
+                            title
+                        }
+                        criticReviews @include(if: $includeCriticReviews) {
+                            openCritic
+                        }
+                        developerDisplayName
+                        effectiveDate
+                        externalPlatformLaunchOptions {
+                            xCloud {
+                                linkSrc
+                                type
+                            }
+                        }
+                        gameWebsite
+                        keyImages {
+                            type
+                            url
+                            alt
+                        }
+                        legalText
+                        pcReleaseDate
+                        productDisplayName
+                        privacyLink
+                        publisherDisplayName
+                        shortDescription
+                        socialLinks {
+                            platform
+                            url
+                        }
+                        supportedAudio
+                        supportedText
+                        tags(locale: $locale) {
+                            id
+                            name
+                            groupName
+                        }
+                        technicalRequirements {
+                            macos {
+                                minimum
+                                recommended
+                                title
+                            }
+                            windows {
+                                minimum
+                                recommended
+                                title
+                            }
+                        }
+                        theme {
+                            dark {
+                                accent
+                                theme
+                            }
+                            light {
+                                accent
+                                theme
+                            }
+                            preferredMode
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
