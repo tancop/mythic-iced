@@ -14,6 +14,7 @@ mod decode;
 mod epic;
 mod images;
 mod library;
+mod logging;
 mod login;
 mod search;
 mod ui;
@@ -40,7 +41,7 @@ pub const LIBRARY_TITLE_TEXT_SIZE: u32 = 14;
 pub const HEADING_TEXT_SIZE: u32 = 18;
 
 fn main() {
-    env_logger::init();
+    crate::logging::init();
 
     log::info!("Starting Mythic Launcher...");
 
