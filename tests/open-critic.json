@@ -1,0 +1,31 @@
+{
+  "__typename": "ProductCriticReviewsEnabled",
+  "criticReviews": {
+    "__typename": "CriticReviews",
+    "criticAverage": 89,
+    "criticRating": "Mighty",
+    "recommendPercentage": 92,
+    "reviews": {
+      "__typename": "PaginatedCriticReviews",
+      "data": [
+        {
+          "body": "The series that cemented the 4X strategy formula continues to stand the test of time with a stellar entry that adds richness and depth in expected places.",
+          "outlet": "GameSpot",
+          "score": {
+            "__typename": "CriticReviewNumericScore",
+            "earnedScore": 9,
+            "totalScore": 10
+          },
+          "url": "http://www.gamespot.com/reviews/civilization-6-review/1900-6416562/",
+          "author": "Scott Butterworth"
+        }
+      ],
+      "paging": {
+        "count": 1,
+        "start": 0,
+        "total": 3
+      }
+    },
+    "url": "https://opencritic.com/game/2719/sid-meiers-civilization-vi"
+  }
+}

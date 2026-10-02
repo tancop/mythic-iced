@@ -15,6 +15,7 @@ query getUserLibrary(
         ) {
             records {
                 acquisitionDate
+                productId # Used for pricing and critic reviews
                 catalogItem(locale: $locale) {
                     id
                     namespace

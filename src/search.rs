@@ -276,6 +276,8 @@ mod tests {
             dlc_item_list: None,
             main_game_item: None,
             release_info: Vec::new(),
+            product_id: None,
+            critic: None,
             search_key: build_search_key(title),
         }
     }

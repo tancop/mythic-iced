@@ -140,6 +140,10 @@ pub enum Message {
         details: Box<epic::GameFullDetails>,
     },
     GameDetailsFailed,
+    CriticLoaded {
+        id: String,
+        score: Option<epic::CriticScore>,
+    },
     Navigate(Page),
 }
 
@@ -169,6 +173,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             library::handle_details_loaded(state, namespace, details)
         }
         Message::GameDetailsFailed => library::handle_details_failed(state),
+        Message::CriticLoaded { id, score } => library::handle_critic_loaded(state, id, score),
         Message::Navigate(page) => {
             state.page = page;
             Task::none()

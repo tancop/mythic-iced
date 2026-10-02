@@ -183,6 +183,20 @@ pub fn view(state: &State) -> Element<'_, Message> {
     if !offer.publisher_display_name.is_empty() {
         identity = identity.push(meta_row("Publisher", &offer.publisher_display_name));
     }
+    if let Some(critic) = item.critic.as_ref() {
+        identity = identity.push(meta_row(
+            "OpenCritic",
+            &format!(
+                "{} {} ({}% recommended)",
+                critic.average,
+                critic.rating(),
+                critic.recommend_percentage
+            ),
+        ));
+        if !critic.url.is_empty() {
+            identity = identity.push(text!("{}", critic.url).size(12));
+        }
+    }
 
     let mut content = column![row![cover, identity].spacing(16)].spacing(12);
 

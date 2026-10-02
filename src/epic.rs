@@ -268,6 +268,10 @@ struct GqlRecord {
         deserialize_with = "crate::decode::deserialize_optional_datetime"
     )]
     acquisition_date: Option<UtcDateTime>,
+    // Record-level id used for pricing and critic reviews (not inside
+    // `catalogItem`, so it is copied onto the item during merge).
+    #[serde(default)]
+    product_id: Option<String>,
     #[serde(default)]
     catalog_item: Option<CatalogItem>,
 }
@@ -492,7 +496,7 @@ fn merge_library_pages(mut pages: Vec<LibraryPage>) -> LibraryCatalog {
     let mut purchase_dates = std::collections::HashMap::new();
     for page in pages {
         for record in parse_library_records(&page.records) {
-            let Some(item) = record.catalog_item else {
+            let Some(mut item) = record.catalog_item else {
                 continue;
             };
             if IGNORE_NAMESPACES.contains(&item.namespace.as_str()) {
@@ -501,6 +505,7 @@ fn merge_library_pages(mut pages: Vec<LibraryPage>) -> LibraryCatalog {
             if !item.supports_windows() {
                 continue;
             }
+            item.product_id = record.product_id;
             if let Some(date) = record.acquisition_date {
                 purchase_dates.insert(item.id.clone(), date);
             }
@@ -1108,6 +1113,103 @@ pub async fn get_game_manifest(
     Ok(res.text().await?)
 }
 
+/// OpenCritic score kept on each library item: average score, recommend
+/// percentage and the OpenCritic page URL. All other API fields are ignored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CriticScore {
+    pub average: i32,
+    pub recommend_percentage: i32,
+    pub url: String,
+}
+
+impl CriticScore {
+    /// Rating word on the OpenCritic scale (Mighty/Strong/Fair/Weak),
+    /// derived from the average score.
+    pub fn rating(&self) -> &'static str {
+        if self.average >= 84 {
+            "Mighty"
+        } else if self.average >= 75 {
+            "Strong"
+        } else if self.average >= 66 {
+            "Fair"
+        } else {
+            "Weak"
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenCriticResponse {
+    #[serde(default, rename = "criticReviews")]
+    critic_reviews: Option<OpenCriticReviews>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCriticReviews {
+    #[serde(default)]
+    critic_average: Option<i32>,
+    #[serde(default)]
+    recommend_percentage: Option<i32>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+/// Parse one open-critic response body into a score; `None` when the product
+/// has no critic data. Unknown fields are ignored.
+fn parse_critic_response(bytes: &[u8]) -> anyhow::Result<Option<CriticScore>> {
+    let resp = serde_json::from_slice::<OpenCriticResponse>(bytes)?;
+    let Some(reviews) = resp.critic_reviews else {
+        return Ok(None);
+    };
+    let (Some(average), Some(recommend_percentage), Some(url)) = (
+        reviews.critic_average,
+        reviews.recommend_percentage,
+        reviews.url,
+    ) else {
+        return Ok(None);
+    };
+    if url.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(CriticScore {
+        average,
+        recommend_percentage,
+        url,
+    }))
+}
+
+/// Fetch OpenCritic scores for one product (`productId` from the library
+/// record). No authentication needed. Returns `None` when the product has
+/// no critic data instead of failing.
+pub async fn get_critic_reviews(
+    client: &isahc::HttpClient,
+    product_id: &str,
+) -> anyhow::Result<Option<CriticScore>> {
+    let url = format!(
+        "https://egs-platform-service.store.epicgames.com/api/v1/egs/products/{product_id}\
+        /critic-reviews/open-critic?count=1&locale=en&start=0&store=EGS"
+    );
+    let req = Request::get(&url)
+        .user_agent(STORE_USER_AGENT)
+        .body(())
+        .unwrap();
+    let mut res = client.send_async(req).await?;
+    if !res.status().is_success() {
+        log::debug!(
+            "critic reviews for {product_id} returned HTTP {}",
+            res.status()
+        );
+        return Ok(None);
+    }
+    let bytes = res.bytes().await?;
+    log::debug!(
+        "critic reviews response for {product_id}: {:?}",
+        str::from_utf8(&bytes).unwrap_or("<non-utf8>")
+    );
+    parse_critic_response(&bytes)
+}
+
 pub type UtcDateTime = chrono::DateTime<chrono::Utc>;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -1203,6 +1305,15 @@ pub struct CatalogItem {
     #[serde(default)]
     pub release_info: Vec<ReleaseInfo>,
 
+    // Record-level `productId` (pricing + critic reviews). Not inside
+    // `catalogItem` itself; filled in during merge.
+    #[serde(skip, default)]
+    pub product_id: Option<String>,
+
+    // OpenCritic score fetched after library load; None when unavailable.
+    #[serde(skip, default)]
+    pub critic: Option<CriticScore>,
+
     // Precomputed by the loading code via `search::build_search_key`:
     // lowercased title with noise words and punctuation stripped. Never
     // serialized; search compares against this instead of `title`.
@@ -1244,6 +1355,8 @@ mod tests {
                 unsearchable: false,
             }),
             release_info: Vec::new(),
+            product_id: None,
+            critic: None,
             search_key: crate::search::build_search_key(title),
         }
     }
@@ -1522,5 +1635,68 @@ mod tests {
         let records = parse_library_records(&values);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].catalog_item.as_ref().unwrap().title, "Good Game");
+    }
+
+    #[test]
+    fn critic_parses_from_example() {
+        let bytes = std::fs::read("tests/open-critic.json").unwrap();
+        let score = parse_critic_response(&bytes)
+            .expect("parses")
+            .expect("has reviews");
+        assert_eq!(score.average, 89);
+        assert_eq!(score.recommend_percentage, 92);
+        assert_eq!(
+            score.url,
+            "https://opencritic.com/game/2719/sid-meiers-civilization-vi"
+        );
+        assert_eq!(score.rating(), "Mighty");
+    }
+
+    #[test]
+    fn critic_rating_follows_opencritic_scale() {
+        let score = |average: i32| CriticScore {
+            average,
+            recommend_percentage: 0,
+            url: "https://opencritic.com/game/1/x".to_string(),
+        };
+        assert_eq!(score(100).rating(), "Mighty");
+        assert_eq!(score(84).rating(), "Mighty");
+        assert_eq!(score(83).rating(), "Strong");
+        assert_eq!(score(75).rating(), "Strong");
+        assert_eq!(score(74).rating(), "Fair");
+        assert_eq!(score(66).rating(), "Fair");
+        assert_eq!(score(65).rating(), "Weak");
+        assert_eq!(score(0).rating(), "Weak");
+    }
+
+    #[test]
+    fn critic_missing_data_yields_none() {
+        for body in [
+            r#"{"criticReviews": null}"#,
+            r#"{"criticReviews": {}}"#,
+            r#"{"criticReviews": {"criticAverage": 89}}"#,
+            r#"{"criticReviews": {"criticAverage": 89, "recommendPercentage": 92, "url": ""}}"#,
+        ] {
+            assert!(
+                parse_critic_response(body.as_bytes())
+                    .expect("parses")
+                    .is_none(),
+                "body should yield None: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn merge_carries_product_id_onto_item() {
+        let mut value = test_record("a", "First");
+        value["productId"] = serde_json::json!("prod-123");
+        let catalog = merge_library_pages(vec![LibraryPage {
+            offset: 0,
+            records: vec![value],
+            next_cursor: None,
+        }]);
+        assert_eq!(catalog.items.len(), 1);
+        assert_eq!(catalog.items[0].product_id.as_deref(), Some("prod-123"));
+        assert_eq!(catalog.items[0].critic, None);
     }
 }

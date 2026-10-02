@@ -27,7 +27,8 @@ pub fn handle_loaded(
 
     let download_tasks = download_missing(state);
     let decode_task = images::decode_visible(state);
-    Task::batch([download_tasks, decode_task])
+    let critic_tasks = fetch_critics(state);
+    Task::batch([download_tasks, decode_task, critic_tasks])
 }
 
 // Spawn one thumbnail download per item missing from the disk cache.
@@ -141,6 +142,48 @@ pub fn handle_details_loaded(
 
 pub fn handle_details_failed(state: &mut State) -> Task<Message> {
     state.details_error = true;
+    Task::none()
+}
+
+// One unauthenticated OpenCritic request per library item that has a
+// `productId`, run in parallel via `Task::batch`.
+fn fetch_critics(state: &State) -> Task<Message> {
+    let Some(items) = &state.catalog_items else {
+        return Task::none();
+    };
+    let client = state.http_client.clone();
+
+    let tasks = items
+        .iter()
+        .filter_map(|item| {
+            let product_id = item.product_id.clone().filter(|id| !id.is_empty())?;
+            let id = item.id.clone();
+            let client = client.clone();
+            Some(Task::future(async move {
+                match epic::get_critic_reviews(&client, &product_id).await {
+                    Ok(score) => Message::CriticLoaded { id, score },
+                    Err(e) => {
+                        log::debug!("critic fetch failed for {product_id}: {e:#}");
+                        Message::CriticLoaded { id, score: None }
+                    }
+                }
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    Task::batch(tasks)
+}
+
+pub fn handle_critic_loaded(
+    state: &mut State,
+    id: String,
+    score: Option<epic::CriticScore>,
+) -> Task<Message> {
+    if let Some(items) = &mut state.catalog_items
+        && let Some(item) = items.iter_mut().find(|item| item.id == id)
+    {
+        item.critic = score;
+    }
     Task::none()
 }
 
