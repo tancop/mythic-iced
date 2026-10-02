@@ -24,39 +24,79 @@ fn is_none_or_empty(value: &Option<String>) -> bool {
     value.as_deref().is_none_or(|v| v.is_empty())
 }
 
-/// Strip the `<!-- ... -->` HTML comments Epic embeds in `longDescription`,
-/// which would otherwise show up as raw text in the rendered markdown.
-pub fn clean_description(raw: &str) -> String {
-    let mut stripped = String::with_capacity(raw.len());
-    let mut rest = raw;
-    while let Some(start) = rest.find("<!--") {
-        stripped.push_str(&rest[..start]);
-        let after = &rest[start + "<!--".len()..];
-        match after.find("-->") {
-            Some(end) => rest = &after[end + "-->".len()..],
-            // Unterminated comment: keep it verbatim rather than dropping content.
-            None => {
-                stripped.push_str("<!--");
-                rest = after;
-                break;
-            }
-        }
-    }
-    stripped.push_str(rest);
-
-    // Epic uses `•` bullets, which are not markdown lists; normalize them so
-    // they render as one.
-    let mut normalized = String::with_capacity(stripped.len());
-    for line in stripped.lines() {
-        if let Some(bullet) = line.trim_start().strip_prefix('•') {
-            normalized.push_str("- ");
-            normalized.push_str(bullet.trim_start());
+/// Close the gap in `[label] (url)` / `![alt] (url)` pairs Epic sometimes
+/// emits, which strict markdown does not parse as links or images.
+fn fix_link_spacing(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(idx) = rest.find(']') {
+        let after_bracket = &rest[idx + ']'.len_utf8()..];
+        let spaces = after_bracket.len() - after_bracket.trim_start_matches([' ', '\t']).len();
+        if spaces > 0 && after_bracket[spaces..].starts_with('(') {
+            out.push_str(&rest[..=idx]);
+            out.push('(');
+            rest = &after_bracket[spaces + '('.len_utf8()..];
         } else {
-            normalized.push_str(line);
+            out.push_str(&rest[..=idx]);
+            rest = after_bracket;
         }
-        normalized.push('\n');
     }
-    normalized.trim().to_string()
+    out.push_str(rest);
+    out
+}
+
+/// Normalize Epic's `longDescription` flavor into strict markdown:
+/// comments become paragraphs, `•` bullets become lists, `[label] (url)`
+/// gaps are closed, and single newlines become hard line breaks. Fenced code
+/// blocks pass through untouched.
+pub fn clean_description(raw: &str) -> String {
+    let raw_lines: Vec<&str> = raw.lines().collect();
+
+    // Per-line fixes, tracking fenced code blocks.
+    let mut lines: Vec<(String, bool)> = Vec::with_capacity(raw_lines.len());
+    let mut in_fence = false;
+    for line in raw_lines {
+        let trimmed = line.trim_start();
+        let is_fence = trimmed.starts_with("```") || trimmed.starts_with("~~~");
+        if is_fence {
+            in_fence = !in_fence;
+        }
+        if in_fence || is_fence {
+            lines.push((line.to_string(), true));
+            continue;
+        }
+        let mut fixed = fix_link_spacing(line);
+        if let Some(bullet) = fixed.trim_start().strip_prefix('•') {
+            fixed = format!("- {}", bullet.trim_start());
+        }
+        lines.push((fixed, false));
+    }
+
+    // Single newlines end the line: harden them, leaving blank-line paragraph
+    // breaks and fenced code alone.
+    let mut out = String::with_capacity(raw.len());
+    for (i, (line, is_code)) in lines.iter().enumerate() {
+        let next_text = lines
+            .get(i + 1)
+            .is_some_and(|(next, _)| !next.trim().is_empty());
+        out.push_str(line);
+        if !is_code
+            && !line.trim().is_empty()
+            && next_text
+            && !line.ends_with("  ")
+            && !line.ends_with('\\')
+        {
+            out.push_str("  ");
+        }
+        out.push('\n');
+    }
+
+    // Collapse the blank lines comment expansion leaves behind.
+    let mut collapsed = out.trim().to_string();
+    while collapsed.contains("\n\n\n") {
+        collapsed = collapsed.replace("\n\n\n", "\n\n");
+    }
+    collapsed
 }
 
 /// Clean Epic's description and parse it for `markdown::view`. Called once
@@ -243,7 +283,7 @@ mod tests {
 
     fn example_description() -> String {
         let data: serde_json::Value =
-            serde_json::from_slice(&std::fs::read("getCatalogOffer.json").unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read("tests/getCatalogOffer.json").unwrap()).unwrap();
         data["data"]["Catalog"]["catalogOffer"]["longDescription"]
             .as_str()
             .expect("longDescription")
@@ -251,16 +291,52 @@ mod tests {
     }
 
     #[test]
-    fn strips_html_comments() {
+    fn comments_become_paragraphs() {
         assert_eq!(
             clean_description("<!--textBlock-->\n<!--text-->\nHello\n\nWorld"),
-            "Hello\n\nWorld"
+            "textBlock\n\ntext\n\nHello\n\nWorld"
+        );
+        assert_eq!(
+            clean_description("Hello<!--note-->world"),
+            "Hello\n\nnote\n\nworld"
         );
     }
 
     #[test]
     fn unterminated_comment_is_kept() {
         assert_eq!(clean_description("Hello <!--oops"), "Hello <!--oops");
+    }
+
+    #[test]
+    fn single_newlines_become_hard_breaks() {
+        assert_eq!(clean_description("one\ntwo"), "one  \ntwo");
+        // Blank lines still separate paragraphs.
+        assert_eq!(clean_description("one\n\ntwo"), "one\n\ntwo");
+    }
+
+    #[test]
+    fn hard_breaks_skip_fenced_code() {
+        assert_eq!(
+            clean_description("```\none\ntwo\n```"),
+            "```\none\ntwo\n```"
+        );
+    }
+
+    #[test]
+    fn link_spacing_is_closed() {
+        assert_eq!(
+            clean_description("[label] (https://example.com)"),
+            "[label](https://example.com)"
+        );
+        assert_eq!(
+            clean_description("![alt] (https://example.com/img.png)"),
+            "![alt](https://example.com/img.png)"
+        );
+        // Already-closed pairs are untouched.
+        assert_eq!(
+            clean_description("[label](https://example.com)"),
+            "[label](https://example.com)"
+        );
     }
 
     #[test]
@@ -286,5 +362,7 @@ mod tests {
                 .any(|item| matches!(item, markdown::Item::List { .. })),
             "feature bullets should parse as a list"
         );
+        // Comment markers are surfaced, not dropped.
+        assert!(cleaned.contains("textBlock"));
     }
 }
