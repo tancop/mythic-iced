@@ -608,8 +608,8 @@ pub struct TechRequirements {
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GameDetails {
-    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
-    pub product_display_name: String,
+    #[serde(default)]
+    pub product_display_name: Option<String>,
     #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub short_description: String,
     #[serde(default)]
@@ -642,10 +642,10 @@ pub struct GameDetails {
 
 impl GameDetails {
     /// Products without a store page (e.g. legacy GTA 5) come back with
-    /// almost every field null; `pcReleaseDate` is never null on normal
+    /// almost every field null; `productDisplayName` is never null on normal
     /// games, so its absence marks them.
     pub fn has_store_page(&self) -> bool {
-        self.pc_release_date
+        self.product_display_name
             .as_deref()
             .is_some_and(|date| !date.is_empty())
     }
@@ -1054,7 +1054,7 @@ mod tests {
         assert_eq!(configs.len(), 1);
         let details = &configs[0];
 
-        assert_eq!(details.product_display_name, "MudRunner");
+        assert_eq!(details.product_display_name, Some("MudRunner".into()));
         assert_eq!(details.developer_display_name, "Saber Interactive");
         assert_eq!(details.publisher_display_name, "Focus Entertainment");
         assert!(details.short_description.contains("ultimate off-road"));
@@ -1147,7 +1147,10 @@ mod tests {
             .find_map(|entry| entry.configs)
             .expect("configs");
 
-        assert_eq!(details.product_display_name, "Grand Theft Auto V");
+        assert_eq!(
+            details.product_display_name,
+            Some("Grand Theft Auto V".into())
+        );
         assert!(!details.has_store_page());
         assert!(details.release_date().is_none());
         assert_eq!(details.description(), "");

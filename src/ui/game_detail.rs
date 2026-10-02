@@ -61,10 +61,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
         });
     };
 
-    let title = if details.product_display_name.is_empty() {
-        item.title.clone()
-    } else {
-        details.product_display_name.clone()
+    let title = match details.product_display_name.as_deref() {
+        Some(name) => name.into(),
+        None => item.title.clone(),
     };
 
     let cover_width = 220.0;
