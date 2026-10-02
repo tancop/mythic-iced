@@ -1,27 +1,12 @@
-query getGameDetails(
-    $includeCriticReviews: Boolean = false
-    $locale: String!
-    $sandboxId: String!
-    $templateId: String
-) {
+query getGameDetails($locale: String!, $sandboxId: String!) {
     Product {
         sandbox(sandboxId: $sandboxId) {
-            configuration(locale: $locale, templateId: $templateId) {
+            configuration(locale: $locale, templateId: null) {
                 ... on StoreConfiguration {
                     configs {
-                        banner {
-                            description
-                            link {
-                                src
-                                title
-                            }
-                            title
-                        }
-                        criticReviews @include(if: $includeCriticReviews) {
+                        criticReviews {
                             openCritic
                         }
-                        developerDisplayName
-                        effectiveDate
                         externalPlatformLaunchOptions {
                             xCloud {
                                 linkSrc
@@ -29,12 +14,7 @@ query getGameDetails(
                             }
                         }
                         gameWebsite
-                        legalText
-                        pcReleaseDate
-                        productDisplayName
                         privacyLink
-                        publisherDisplayName
-                        shortDescription
                         socialLinks {
                             platform
                             url
@@ -57,17 +37,6 @@ query getGameDetails(
                                 recommended
                                 title
                             }
-                        }
-                        theme {
-                            dark {
-                                accent
-                                theme
-                            }
-                            light {
-                                accent
-                                theme
-                            }
-                            preferredMode
                         }
                     }
                 }

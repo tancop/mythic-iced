@@ -97,9 +97,9 @@ pub struct State {
     pub purchase_dates: HashMap<String, epic::UtcDateTime>,
 
     pub focused_game_idx: Option<usize>,
-    // Store-page details by namespace (sandbox id), fetched on demand.
+    // Full store info by namespace (sandbox id), fetched on demand.
     #[default(HashMap::new())]
-    pub game_details: HashMap<String, epic::GameDetails>,
+    pub game_details: HashMap<String, epic::GameFullDetails>,
     pub details_error: bool,
 }
 
@@ -134,7 +134,7 @@ pub enum Message {
     GameSelected(usize),
     GameDetailsLoaded {
         namespace: String,
-        details: Box<epic::GameDetails>,
+        details: Box<epic::GameFullDetails>,
     },
     GameDetailsFailed,
     Navigate(Page),

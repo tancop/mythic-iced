@@ -1,0 +1,38 @@
+query getCatalogOffer($sandboxId: String!, $offerId: String!, $locale: String) {
+    Catalog {
+        catalogOffer(namespace: $sandboxId, id: $offerId, locale: $locale) {
+            title
+            developerDisplayName
+            description # short description on top of the page
+            offerType # BASE_GAME or DLC
+            externalLinks {
+                text
+                url
+            }
+            longDescription # full store page description
+            seller {
+                id
+                name
+            }
+            publisherDisplayName
+            releaseDate
+            tags {
+                id
+                name
+                groupName
+            }
+            items {
+                id
+                namespace
+                releaseInfo {
+                    appId
+                    platform
+                }
+            }
+            categories {
+                path
+            }
+            pcReleaseDate
+        }
+    }
+}

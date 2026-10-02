@@ -5,7 +5,7 @@ use iced::{
 
 use crate::{
     Message, State,
-    epic::TechRequirement,
+    epic::{GameDetails, TechRequirement},
     images::PixelData,
     ui::{TextWidgetExt, library::GRID_CONFIG},
 };
@@ -53,7 +53,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let Some(item) = state.focused_game_idx.and_then(|index| items.get(index)) else {
         return centered("Select a game from the library.");
     };
-    let Some(details) = state.game_details.get(&item.namespace) else {
+    let Some(full) = state.game_details.get(&item.namespace) else {
         return centered(if state.details_error {
             "Couldn't load game details."
         } else {
@@ -61,10 +61,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
         });
     };
 
-    let title = match details.product_display_name.as_deref() {
-        Some(name) => name.into(),
-        None => item.title.clone(),
-    };
+    let title = full.title(&item.title);
+    let offer = &full.offer;
 
     let cover_width = 220.0;
     let cover: Element<'_, Message> = match state.decoded_images.get(&item.id) {
@@ -82,32 +80,12 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .into(),
     };
 
-    // Products without a store page only have a name and artwork.
-    if !details.has_store_page() {
-        return container(
-            scrollable(
-                row![
-                    cover,
-                    column![
-                        text!("{}", title).bold().size(24).width(Length::Fill),
-                        text!("No information available").width(Length::Fill),
-                    ]
-                ]
-                .spacing(16),
-            )
-            .height(Length::Fill)
-            .width(Length::Fill),
-        )
-        .padding(16)
-        .into();
-    }
-
     let mut content = column![
         row![
             cover,
             column![
                 text!("{}", title).bold().size(24),
-                text!("{}", details.description())
+                text!("{}", full.description())
             ]
             .spacing(8)
             .width(Length::Fill),
@@ -117,29 +95,65 @@ pub fn view(state: &State) -> Element<'_, Message> {
     .spacing(12);
 
     let mut meta = column![].spacing(4);
-    if !details.developer_display_name.is_empty() {
-        meta = meta.push(meta_row("Developer", &details.developer_display_name));
+    if !offer.developer_display_name.is_empty() {
+        meta = meta.push(meta_row("Developer", &offer.developer_display_name));
     }
-    if !details.publisher_display_name.is_empty() {
-        meta = meta.push(meta_row("Publisher", &details.publisher_display_name));
+    if !offer.publisher_display_name.is_empty() {
+        meta = meta.push(meta_row("Publisher", &offer.publisher_display_name));
     }
-    if let Some(date) = details.release_date() {
+    if let Some(seller) = offer.seller.as_ref().filter(|s| !s.name.is_empty()) {
+        meta = meta.push(meta_row("Seller", &seller.name));
+    }
+    if !offer.offer_type.is_empty() {
+        meta = meta.push(meta_row("Offer type", &offer.offer_type));
+    }
+    if let Some(date) = full.release_date() {
         meta = meta.push(meta_row("Release date", date));
-    }
-    if let Some(website) = details.game_website.as_deref().filter(|s| !s.is_empty()) {
-        meta = meta.push(meta_row("Website", website));
     }
     content = content.push(meta);
 
-    let languages = details.supported_text.as_deref().unwrap_or_default();
-    if !languages.is_empty() {
-        content = content.push(meta_row("Languages", &languages.join(", ")));
+    // Store configuration is only present for products with a store page.
+    // Offer-level info above is always shown; the rest needs `Full` details.
+    let GameDetails::Full(details) = &full.details else {
+        content = content.push(text!("No further information available").size(14));
+        return container(scrollable(content).height(Length::Fill).width(Length::Fill))
+            .padding(16)
+            .into();
+    };
+
+    if let Some(website) = details.game_website.as_deref().filter(|s| !s.is_empty()) {
+        content = content.push(meta_row("Website", website));
+    }
+    if let Some(link) = details.privacy_link.as_deref().filter(|s| !s.is_empty()) {
+        content = content.push(meta_row("Privacy", link));
+    }
+    if let Some(review) = details
+        .social_links
+        .as_deref()
+        .filter(|links| !links.is_empty())
+    {
+        let socials = review
+            .iter()
+            .map(|link| format!("{}: {}", link.platform, link.url))
+            .collect::<Vec<_>>()
+            .join(", ");
+        content = content.push(meta_row("Social", &socials));
+    }
+
+    if !details.supported_text.is_empty() {
+        content = content.push(meta_row("Languages", &details.supported_text.join(", ")));
+    }
+
+    if let Some(audio) = details
+        .supported_audio
+        .as_deref()
+        .filter(|audio| !audio.is_empty())
+    {
+        content = content.push(meta_row("Audio", &audio.join(", ")));
     }
 
     let tags: Vec<_> = details
         .tags
-        .as_deref()
-        .unwrap_or_default()
         .iter()
         .map(|tag| tag.name.as_str())
         .filter(|name| !name.is_empty())
@@ -150,23 +164,19 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     if let Some(reqs) = details
         .technical_requirements
-        .as_ref()
-        .and_then(|reqs| reqs.windows.as_deref())
+        .windows
+        .as_deref()
         .filter(|reqs| !reqs.is_empty())
     {
         content = content.push(requirements("Windows", reqs));
     }
     if let Some(reqs) = details
         .technical_requirements
-        .as_ref()
-        .and_then(|reqs| reqs.macos.as_deref())
+        .macos
+        .as_deref()
         .filter(|reqs| !reqs.is_empty())
     {
         content = content.push(requirements("macOS", reqs));
-    }
-
-    if let Some(legal) = details.legal_text.as_deref().filter(|s| !s.is_empty()) {
-        content = content.push(text!("{}", legal).size(12));
     }
 
     container(scrollable(content).height(Length::Fill).width(Length::Fill))

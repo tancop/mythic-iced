@@ -197,6 +197,8 @@ pub struct LibraryCatalog {
 const STORE_GQL_URL: &'static str = formatcp!("https://{}/graphql", STORE_GQL_HOST);
 const LIBRARY_QUERY: &str = include_str!("graphql/getUserLibrary.gql");
 const DETAILS_QUERY: &str = include_str!("graphql/getGameDetails.gql");
+const NAMESPACE_QUERY: &str = include_str!("graphql/getCatalogNamespace.gql");
+const OFFER_QUERY: &str = include_str!("graphql/getCatalogOffer.gql");
 
 fn trim_trailing_whitespace(bytes: &[u8]) -> &[u8] {
     let mut end = bytes.len();
@@ -511,17 +513,34 @@ fn merge_library_pages(mut pages: Vec<LibraryPage>) -> LibraryCatalog {
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DetailsVariables {
-    locale: String,
-    sandbox_id: String,
+async fn post_store_gql(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    query: &str,
+    variables: serde_json::Value,
+) -> anyhow::Result<Vec<u8>> {
+    let body = serde_json::to_vec(&serde_json::json!({
+        "query": query,
+        "variables": variables,
+    }))?;
+    let req = Request::post(STORE_GQL_URL)
+        .bearer_auth(auth_token)
+        .user_agent(STORE_USER_AGENT)
+        .content_type(ContentType::Json)
+        .body(body)
+        .unwrap();
+    let mut res = client.send_async(req).await?;
+    Ok(res.bytes().await?)
 }
 
-#[derive(Serialize)]
-struct DetailsRequest<'a> {
-    query: &'a str,
-    variables: DetailsVariables,
+fn check_gql_errors(errors: &Option<Vec<GqlError>>, context: &str) -> anyhow::Result<()> {
+    if let Some(errors) = errors
+        && !errors.is_empty()
+    {
+        let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+        bail!("{context} GraphQL query failed: {}", msgs.join("; "));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -555,14 +574,33 @@ struct DetailsConfigEntry {
     configs: Option<GameDetails>,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct DetailsBanner {
-    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
-    pub description: String,
+pub struct CriticReviews {
+    pub open_critic: bool,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct XCloudLink {
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub link_src: String,
+    #[serde(
+        rename = "type",
+        default,
+        deserialize_with = "crate::decode::deserialize_null_default"
+    )]
+    pub link_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalPlatformLaunchOptions {
+    #[serde(default)]
+    pub x_cloud: Option<XCloudLink>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SocialLink {
     #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
@@ -571,7 +609,7 @@ pub struct SocialLink {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreTag {
     #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
@@ -582,7 +620,7 @@ pub struct StoreTag {
     pub group_name: String,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TechRequirement {
     #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
@@ -602,98 +640,346 @@ pub struct TechRequirements {
     pub macos: Option<Vec<TechRequirement>>,
 }
 
-/// Store-page details for one product (`sandboxId` is the catalog
-/// `namespace`). Only the fields the detail view shows are modeled;
-/// everything else the query returns is ignored.
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+/// Full store configuration: `supportedText`, `tags` and
+/// `technicalRequirements` are always present, and
+/// `criticReviews.openCritic` is always true/false, never null.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct GameDetails {
+pub struct FullGameDetails {
+    pub critic_reviews: CriticReviews,
     #[serde(default)]
-    pub product_display_name: Option<String>,
-    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
-    pub short_description: String,
-    #[serde(default)]
-    pub banner: Option<DetailsBanner>,
-    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
-    pub developer_display_name: String,
-    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
-    pub publisher_display_name: String,
-    #[serde(default)]
-    pub pc_release_date: Option<String>,
-    #[serde(default)]
-    pub effective_date: Option<String>,
+    pub external_platform_launch_options: Option<ExternalPlatformLaunchOptions>,
     #[serde(default)]
     pub game_website: Option<String>,
     #[serde(default)]
     pub privacy_link: Option<String>,
     #[serde(default)]
-    pub supported_text: Option<Vec<String>>,
-    #[serde(default)]
-    pub supported_audio: Option<Vec<String>>,
-    #[serde(default)]
     pub social_links: Option<Vec<SocialLink>>,
     #[serde(default)]
-    pub tags: Option<Vec<StoreTag>>,
-    #[serde(default)]
-    pub technical_requirements: Option<TechRequirements>,
-    #[serde(default)]
-    pub legal_text: Option<String>,
+    pub supported_audio: Option<Vec<String>>,
+    pub supported_text: Vec<String>,
+    pub tags: Vec<StoreTag>,
+    pub technical_requirements: TechRequirements,
+}
+
+/// Products without a store page (e.g. legacy GTA 5) come back with nulls
+/// where `FullGameDetails` requires values. Matches any object as a
+/// fallback; `GameDetails` tries `Full` first so real pages never land here.
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+pub struct EmptyGameDetails {}
+
+/// Store configuration with two shapes: full info, or empty (no store page).
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum GameDetails {
+    Full(Box<FullGameDetails>),
+    Empty(EmptyGameDetails),
 }
 
 impl GameDetails {
-    /// Products without a store page (e.g. legacy GTA 5) come back with
-    /// almost every field null; `productDisplayName` is never null on normal
-    /// games, so its absence marks them.
     pub fn has_store_page(&self) -> bool {
-        self.product_display_name
-            .as_deref()
-            .is_some_and(|date| !date.is_empty())
+        matches!(self, GameDetails::Full(_))
     }
 
-    /// Long blurb when the product has one, else the short description.
-    pub fn description(&self) -> &str {
-        self.banner
-            .as_ref()
-            .map(|banner| banner.description.as_str())
-            .filter(|description| !description.is_empty())
-            .unwrap_or(&self.short_description)
-    }
-
-    /// Release date as `YYYY-MM-DD` when the value carries a time part.
-    pub fn release_date(&self) -> Option<&str> {
-        self.pc_release_date
-            .as_deref()
-            .or(self.effective_date.as_deref())
-            .map(|date| date.get(..10).unwrap_or(date))
+    pub fn full(&self) -> Option<&FullGameDetails> {
+        match self {
+            GameDetails::Full(full) => Some(full),
+            GameDetails::Empty(_) => None,
+        }
     }
 }
 
-/// Fetch one product's store-page details. `sandbox_id` is the catalog
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalLink {
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub text: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Seller {
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub id: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OfferItem {
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub id: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub namespace: String,
+    #[serde(default)]
+    pub release_info: Option<ReleaseInfo>,
+}
+
+/// Catalog offer for the main game entry: identity, store text and seller.
+/// Fetched via `getCatalogOffer`; complements `GameDetails` without overlap.
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogOffer {
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub title: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub developer_display_name: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub description: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub offer_type: String,
+    #[serde(default)]
+    pub external_links: Option<Vec<ExternalLink>>,
+    #[serde(default)]
+    pub long_description: Option<String>,
+    #[serde(default)]
+    pub seller: Option<Seller>,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub publisher_display_name: String,
+    #[serde(default)]
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<StoreTag>,
+    #[serde(default)]
+    pub items: Vec<OfferItem>,
+    #[serde(deserialize_with = "crate::decode::deserialize_path_list", default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub pc_release_date: Option<String>,
+}
+
+impl CatalogOffer {
+    /// Release date as `YYYY-MM-DD` when the value carries a time part.
+    pub fn release_date_trimmed(&self) -> Option<&str> {
+        self.pc_release_date
+            .as_deref()
+            .or(self.release_date.as_deref())
+            .map(|date| date.get(..10).unwrap_or(date))
+    }
+
+    /// Long blurb when the offer has one, else the short description.
+    pub fn description(&self) -> &str {
+        self.long_description
+            .as_deref()
+            .filter(|description| !description.is_empty())
+            .unwrap_or(&self.description)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OfferGqlResponse {
+    data: Option<OfferData>,
+    #[serde(default)]
+    errors: Option<Vec<GqlError>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OfferData {
+    #[serde(rename = "Catalog")]
+    catalog: OfferCatalog,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfferCatalog {
+    catalog_offer: Option<CatalogOffer>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OfferIdMapping {
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub offer_id: String,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NamespaceMapping {
+    #[serde(default)]
+    pub deleted_date: Option<String>,
+    #[serde(default)]
+    pub mappings: OfferIdMapping,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub page_slug: String,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub page_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct NamespaceGqlResponse {
+    data: Option<NamespaceData>,
+    #[serde(default)]
+    errors: Option<Vec<GqlError>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NamespaceData {
+    #[serde(rename = "Catalog")]
+    catalog: NamespaceCatalog,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NamespaceCatalog {
+    #[serde(default)]
+    catalog_ns: Option<NamespaceInfo>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NamespaceInfo {
+    #[serde(default)]
+    pub mappings: Vec<NamespaceMapping>,
+    #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
+    pub store: String,
+}
+
+/// Find the main game's offer id: the `productHome` entry's offer. Falls back
+/// to the first live entry when no `productHome` exists.
+pub fn find_main_offer_id(mappings: &[NamespaceMapping]) -> Option<String> {
+    mappings
+        .iter()
+        .find(|m| {
+            m.page_type == "productHome"
+                && m.deleted_date.is_none()
+                && !m.mappings.offer_id.is_empty()
+        })
+        .or_else(|| {
+            mappings
+                .iter()
+                .find(|m| m.deleted_date.is_none() && !m.mappings.offer_id.is_empty())
+        })
+        .map(|m| m.mappings.offer_id.clone())
+}
+
+/// Combined store info for one product: offer identity/text plus the store
+/// configuration (languages, tags, requirements).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameFullDetails {
+    pub offer_id: String,
+    pub offer: CatalogOffer,
+    pub details: GameDetails,
+}
+
+impl GameFullDetails {
+    pub fn has_store_page(&self) -> bool {
+        self.details.has_store_page()
+    }
+
+    pub fn title(&self, fallback: &str) -> String {
+        if self.offer.title.is_empty() {
+            fallback.to_string()
+        } else {
+            self.offer.title.clone()
+        }
+    }
+
+    pub fn description(&self) -> &str {
+        self.offer.description()
+    }
+
+    pub fn release_date(&self) -> Option<&str> {
+        self.offer.release_date_trimmed()
+    }
+}
+
+/// Fetch the namespace mappings for one product (`sandbox_id` is the catalog
+/// `namespace`). Same store GraphQL endpoint/auth as the library fetch.
+pub async fn get_catalog_namespace(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    sandbox_id: &str,
+) -> anyhow::Result<NamespaceInfo> {
+    let bytes = post_store_gql(
+        client,
+        auth_token,
+        NAMESPACE_QUERY,
+        serde_json::json!({ "sandboxId": sandbox_id }),
+    )
+    .await?;
+
+    log::debug!(
+        "catalog namespace gql response: {:?}",
+        str::from_utf8(&bytes).unwrap_or("<non-utf8>")
+    );
+
+    let trimmed = trim_trailing_whitespace(&bytes);
+    let gql = serde_json::from_slice::<NamespaceGqlResponse>(trimmed).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to parse catalog namespace response ({} bytes): {e}",
+            bytes.len()
+        )
+    })?;
+    check_gql_errors(&gql.errors, "catalog namespace")?;
+    let Some(data) = gql.data else {
+        bail!("catalog namespace GraphQL response missing data");
+    };
+    data.catalog
+        .catalog_ns
+        .ok_or_else(|| anyhow::anyhow!("catalog namespace response has no catalogNs"))
+}
+
+/// Fetch one offer by namespace + offer id. `locale` is always `en` for now.
+pub async fn get_catalog_offer(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    sandbox_id: &str,
+    offer_id: &str,
+) -> anyhow::Result<CatalogOffer> {
+    let bytes = post_store_gql(
+        client,
+        auth_token,
+        OFFER_QUERY,
+        serde_json::json!({
+            "sandboxId": sandbox_id,
+            "offerId": offer_id,
+            "locale": "en",
+        }),
+    )
+    .await?;
+
+    log::debug!(
+        "catalog offer gql response: {:?}",
+        str::from_utf8(&bytes).unwrap_or("<non-utf8>")
+    );
+
+    let trimmed = trim_trailing_whitespace(&bytes);
+    let gql = serde_json::from_slice::<OfferGqlResponse>(trimmed).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to parse catalog offer response ({} bytes): {e}",
+            bytes.len()
+        )
+    })?;
+    check_gql_errors(&gql.errors, "catalog offer")?;
+    let Some(data) = gql.data else {
+        bail!("catalog offer GraphQL response missing data");
+    };
+    data.catalog
+        .catalog_offer
+        .ok_or_else(|| anyhow::anyhow!("catalog offer response has no catalogOffer"))
+}
+
+/// Fetch one product's store configuration. `sandbox_id` is the catalog
 /// `namespace`; `locale` is always `en` for now and `templateId` is left
 /// unset. Same store GraphQL endpoint/auth as the library fetch.
-pub async fn get_game_details(
+pub async fn get_store_details(
     client: &isahc::HttpClient,
     auth_token: &str,
     sandbox_id: &str,
 ) -> anyhow::Result<GameDetails> {
-    let body = serde_json::to_vec(&DetailsRequest {
-        query: DETAILS_QUERY,
-        variables: DetailsVariables {
-            locale: "en".to_string(),
-            sandbox_id: sandbox_id.to_string(),
-        },
-    })?;
-
-    log::debug!("fetching game details for sandbox_id: {}", sandbox_id);
-
-    let req = Request::post(STORE_GQL_URL)
-        .bearer_auth(auth_token)
-        .user_agent(STORE_USER_AGENT)
-        .content_type(ContentType::Json)
-        .body(body)
-        .unwrap();
-    let mut res = client.send_async(req).await?;
-    let bytes = res.bytes().await?;
+    let bytes = post_store_gql(
+        client,
+        auth_token,
+        DETAILS_QUERY,
+        serde_json::json!({
+            "locale": "en",
+            "sandboxId": sandbox_id,
+        }),
+    )
+    .await?;
 
     log::debug!(
         "game details gql response: {:?}",
@@ -707,22 +993,46 @@ pub async fn get_game_details(
             bytes.len()
         )
     })?;
-    if let Some(errors) = gql.errors
-        && !errors.is_empty()
-    {
-        let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-        bail!("game details GraphQL query failed: {}", msgs.join("; "));
-    }
+    check_gql_errors(&gql.errors, "game details")?;
     let Some(data) = gql.data else {
         bail!("game details GraphQL response missing data");
     };
 
-    data.product
+    // Missing `configs` (e.g. all `{}` fragments) means no store page.
+    let configs = data
+        .product
         .sandbox
         .configuration
         .into_iter()
-        .find_map(|entry| entry.configs)
-        .ok_or_else(|| anyhow::anyhow!("game details response has no StoreConfiguration"))
+        .find_map(|entry| entry.configs);
+    Ok(configs.unwrap_or(GameDetails::Empty(EmptyGameDetails {})))
+}
+
+/// Fetch full store info for one product: resolve the main game's offer id
+/// via `getCatalogNamespace`, then fetch `getGameDetails` and
+/// `getCatalogOffer` in parallel.
+pub async fn get_game_details(
+    client: &isahc::HttpClient,
+    auth_token: &str,
+    sandbox_id: &str,
+) -> anyhow::Result<GameFullDetails> {
+    log::debug!("fetching game details for sandbox_id: {}", sandbox_id);
+
+    let namespace = get_catalog_namespace(client, auth_token, sandbox_id).await?;
+    let offer_id = find_main_offer_id(&namespace.mappings)
+        .ok_or_else(|| anyhow::anyhow!("catalog namespace has no offer mappings"))?;
+
+    let (details_result, offer_result) = iced::futures::future::join(
+        get_store_details(client, auth_token, sandbox_id),
+        get_catalog_offer(client, auth_token, sandbox_id, &offer_id),
+    )
+    .await;
+
+    Ok(GameFullDetails {
+        offer_id,
+        offer: offer_result?,
+        details: details_result?,
+    })
 }
 
 const MANIFEST_URL: &'static str = formatcp!(
@@ -1039,7 +1349,7 @@ mod tests {
 
     #[test]
     fn game_details_deserialize_from_example() {
-        let bytes = std::fs::read("tests/game_detail.json").unwrap();
+        let bytes = std::fs::read("getGameDetails.json").unwrap();
         let resp: DetailsGqlResponse = serde_json::from_slice(&bytes).unwrap();
         let configs: Vec<_> = resp
             .data
@@ -1052,33 +1362,19 @@ mod tests {
             .collect();
         // The other configuration fragments come back as `{}`.
         assert_eq!(configs.len(), 1);
-        let details = &configs[0];
+        let GameDetails::Full(details) = &configs[0] else {
+            panic!("expected full game details");
+        };
 
-        assert_eq!(details.product_display_name, Some("MudRunner".into()));
-        assert_eq!(details.developer_display_name, "Saber Interactive");
-        assert_eq!(details.publisher_display_name, "Focus Entertainment");
-        assert!(details.short_description.contains("ultimate off-road"));
-        // No banner blurb here, so the short description is used.
-        assert_eq!(details.description(), details.short_description.as_str());
-        assert!(details.release_date().is_none());
-
-        let tags: Vec<_> = details
-            .tags
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|tag| tag.name.as_str())
-            .collect();
-        assert!(tags.contains(&"Single Player"));
-        assert!(tags.contains(&"Cloud Saves"));
-
-        let languages = details.supported_text.as_deref().unwrap_or_default();
-        assert!(languages.contains(&"English".to_string()));
+        assert!(details.critic_reviews.open_critic);
+        assert!(details.supported_text.contains(&"English".to_string()));
+        assert!(details.tags.iter().any(|tag| tag.name == "Single Player"));
+        assert!(details.tags.iter().any(|tag| tag.name == "Cloud Saves"));
 
         let windows = details
             .technical_requirements
-            .as_ref()
-            .and_then(|reqs| reqs.windows.as_deref())
+            .windows
+            .as_deref()
             .unwrap_or_default();
         let storage = windows
             .iter()
@@ -1090,45 +1386,27 @@ mod tests {
                 .as_deref()
                 .is_some_and(|v| v.contains("1 GB available space"))
         );
-        assert!(
-            details
-                .technical_requirements
-                .as_ref()
-                .and_then(|reqs| reqs.macos.as_deref())
-                .is_none()
-        );
+        assert!(details.technical_requirements.macos.is_none());
     }
 
     #[test]
-    fn product_without_store_page_parses_and_is_detected() {
-        // Legacy GTA 5: almost every field is explicit null.
+    fn product_without_store_page_parses_as_empty() {
+        // Legacy GTA-style: nulls where `FullGameDetails` requires values.
         let bytes = serde_json::json!({
             "data": {
                 "Product": {
                     "sandbox": {
                         "configuration": [{
                             "configs": {
-                                "banner": null,
-                                "developerDisplayName": null,
-                                "effectiveDate": null,
+                                "criticReviews": null,
                                 "externalPlatformLaunchOptions": null,
                                 "gameWebsite": null,
-                                "legalText": null,
-                                "pcReleaseDate": null,
-                                "productDisplayName": "Grand Theft Auto V",
                                 "privacyLink": null,
-                                "publisherDisplayName": null,
-                                "shortDescription": null,
                                 "socialLinks": null,
                                 "supportedAudio": null,
                                 "supportedText": null,
                                 "tags": [],
-                                "technicalRequirements": null,
-                                "theme": {
-                                    "dark": {"accent": "#0074E4", "theme": "gray"},
-                                    "light": {"accent": "#0074E4", "theme": "gray"},
-                                    "preferredMode": "dark"
-                                }
+                                "technicalRequirements": null
                             }
                         }]
                     }
@@ -1136,7 +1414,7 @@ mod tests {
             }
         });
         let resp: DetailsGqlResponse =
-            serde_json::from_value(bytes).expect("legacy GTA 5 response parses");
+            serde_json::from_value(bytes).expect("empty-style response parses");
         let details = resp
             .data
             .expect("data")
@@ -1146,14 +1424,56 @@ mod tests {
             .into_iter()
             .find_map(|entry| entry.configs)
             .expect("configs");
-
-        assert_eq!(
-            details.product_display_name,
-            Some("Grand Theft Auto V".into())
-        );
         assert!(!details.has_store_page());
-        assert!(details.release_date().is_none());
-        assert_eq!(details.description(), "");
+        assert!(matches!(details, GameDetails::Empty(_)));
+    }
+
+    #[test]
+    fn namespace_resolves_main_game_offer() {
+        let bytes = std::fs::read("getCatalogNamespace.json").unwrap();
+        let resp: NamespaceGqlResponse = serde_json::from_slice(&bytes).unwrap();
+        let info = resp
+            .data
+            .expect("data")
+            .catalog
+            .catalog_ns
+            .expect("catalogNs");
+        assert_eq!(info.store, "EGS");
+        assert_eq!(info.mappings.len(), 6);
+        // `productHome` entry carries the main game's offer id.
+        assert_eq!(
+            find_main_offer_id(&info.mappings),
+            Some("7aea960be7dd4d86a9b30cf5daa03eeb".to_string())
+        );
+    }
+
+    #[test]
+    fn catalog_offer_deserializes_from_example() {
+        let bytes = std::fs::read("getCatalogOffer.json").unwrap();
+        let resp: OfferGqlResponse = serde_json::from_slice(&bytes).unwrap();
+        let offer = resp
+            .data
+            .expect("data")
+            .catalog
+            .catalog_offer
+            .expect("catalogOffer");
+
+        assert_eq!(offer.title, "MudRunner");
+        assert_eq!(offer.developer_display_name, "Saber Interactive");
+        assert_eq!(offer.publisher_display_name, "Focus Entertainment");
+        assert_eq!(offer.offer_type, "BASE_GAME");
+        assert!(offer.description.contains("ultimate off-road"));
+        assert!(
+            offer
+                .long_description
+                .as_deref()
+                .is_some_and(|v| v.contains("ultimate off-road"))
+        );
+        assert_eq!(offer.release_date_trimmed(), Some("2020-11-26"));
+        assert!(offer.tags.iter().any(|tag| tag.name == "Single Player"));
+        assert!(offer.categories.contains(&"games".to_string()));
+        let seller = offer.seller.expect("seller");
+        assert_eq!(seller.name, "Focus Entertainment Publishing");
     }
 
     #[test]

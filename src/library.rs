@@ -129,7 +129,7 @@ pub fn handle_game_selected(state: &mut State, index: usize) -> Task<Message> {
 pub fn handle_details_loaded(
     state: &mut State,
     namespace: String,
-    details: Box<epic::GameDetails>,
+    details: Box<epic::GameFullDetails>,
 ) -> Task<Message> {
     state.game_details.insert(namespace, *details);
     Task::none()

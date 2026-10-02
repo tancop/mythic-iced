@@ -1,0 +1,17 @@
+query getCatalogNamespace($sandboxId: String!) {
+    Catalog {
+        catalogNs(namespace: $sandboxId) {
+            mappings {
+                createdDate # Unix timestamp
+                deletedDate # Unix timestamp
+                mappings {
+                    offerId
+                }
+                pageSlug # store page is `store.epicgames.com/p/{pageSlug}`
+                pageType # "productHome" for game, "offer" for addons
+                updatedDate # Unix timestamp
+            }
+            store
+        }
+    }
+}
