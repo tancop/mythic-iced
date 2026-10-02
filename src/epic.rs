@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn graphql_first_page_deserializes() {
-        let bytes = std::fs::read("graphql_output.json").unwrap();
+        let bytes = std::fs::read("tests/graphql_output.json").unwrap();
         let trimmed = trim_trailing_whitespace(&bytes);
         let resp: GqlResponse = serde_json::from_slice(trimmed).unwrap();
         let data = resp.data.expect("data");
@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn game_details_deserialize_from_example() {
-        let bytes = std::fs::read("game_detail.json").unwrap();
+        let bytes = std::fs::read("tests/game_detail.json").unwrap();
         let resp: DetailsGqlResponse = serde_json::from_slice(&bytes).unwrap();
         let configs: Vec<_> = resp
             .data
