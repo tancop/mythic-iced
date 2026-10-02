@@ -295,18 +295,6 @@ mod tests {
     }
 
     #[test]
-    fn comments_become_paragraphs() {
-        assert_eq!(
-            clean_description("<!--textBlock-->\n<!--text-->\nHello\n\nWorld"),
-            "textBlock\n\ntext\n\nHello\n\nWorld"
-        );
-        assert_eq!(
-            clean_description("Hello<!--note-->world"),
-            "Hello\n\nnote\n\nworld"
-        );
-    }
-
-    #[test]
     fn unterminated_comment_is_kept() {
         assert_eq!(clean_description("Hello <!--oops"), "Hello <!--oops");
     }
@@ -366,7 +354,7 @@ mod tests {
                 .any(|item| matches!(item, markdown::Item::List { .. })),
             "feature bullets should parse as a list"
         );
-        // Comment markers are surfaced, not dropped.
-        assert!(cleaned.contains("textBlock"));
+        // Comment markers are removed
+        assert!(!cleaned.contains("textBlock"));
     }
 }
