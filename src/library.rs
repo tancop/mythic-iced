@@ -131,6 +131,10 @@ pub fn handle_details_loaded(
     namespace: String,
     details: Box<epic::GameFullDetails>,
 ) -> Task<Message> {
+    state.detail_bodies.insert(
+        namespace.clone(),
+        crate::ui::game_detail::parse_description(details.description()),
+    );
     state.game_details.insert(namespace, *details);
     Task::none()
 }

@@ -100,6 +100,9 @@ pub struct State {
     // Full store info by namespace (sandbox id), fetched on demand.
     #[default(HashMap::new())]
     pub game_details: HashMap<String, epic::GameFullDetails>,
+    // Parsed markdown bodies for the detail view, keyed by namespace.
+    #[default(HashMap::new())]
+    pub detail_bodies: HashMap<String, Vec<iced::widget::markdown::Item>>,
     pub details_error: bool,
 }
 

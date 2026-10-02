@@ -5,7 +5,7 @@ mod icons;
 pub mod library;
 pub mod login;
 pub mod navbar;
-mod theme;
+pub(crate) mod theme;
 pub mod virtual_grid;
 
 pub fn get_theme() -> Custom {
