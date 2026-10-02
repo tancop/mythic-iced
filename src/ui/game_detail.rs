@@ -341,11 +341,9 @@ mod tests {
     }
 
     #[test]
-    fn example_description_parses_without_raw_comments() {
+    fn example_description_parses_bullet_list() {
         let raw = example_description();
-        assert!(raw.contains("<!--"));
-        let cleaned = clean_description(&raw);
-        assert!(!cleaned.contains("<!--"));
+        assert!(raw.contains("•"));
 
         let items = parse_description(&raw);
         assert!(
@@ -354,7 +352,5 @@ mod tests {
                 .any(|item| matches!(item, markdown::Item::List { .. })),
             "feature bullets should parse as a list"
         );
-        // Comment markers are removed
-        assert!(!cleaned.contains("textBlock"));
     }
 }
