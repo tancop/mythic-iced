@@ -9,7 +9,6 @@ query getCatalogOffer($sandboxId: String!, $offerId: String!, $locale: String) {
                 text
                 url
             }
-            longDescription # full store page description
             seller {
                 id
                 name

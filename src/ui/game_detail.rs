@@ -283,9 +283,13 @@ mod tests {
 
     fn example_description() -> String {
         let data: serde_json::Value =
-            serde_json::from_slice(&std::fs::read("tests/getCatalogOffer.json").unwrap()).unwrap();
-        data["data"]["Catalog"]["catalogOffer"]["longDescription"]
-            .as_str()
+            serde_json::from_slice(&std::fs::read("tests/getGameDetails.json").unwrap()).unwrap();
+        data["data"]["Product"]["sandbox"]["configuration"]
+            .as_array()
+            .expect("configuration")
+            .iter()
+            .filter_map(|entry| entry["configs"]["longDescription"].as_str())
+            .next()
             .expect("longDescription")
             .to_string()
     }

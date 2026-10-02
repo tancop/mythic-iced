@@ -571,7 +571,50 @@ struct DetailsSandbox {
 #[derive(Debug, Deserialize)]
 struct DetailsConfigEntry {
     #[serde(default)]
-    configs: Option<GameDetails>,
+    configs: Option<StoreConfigs>,
+}
+
+/// `HomeConfiguration` configs: carries the long blurb. `longDescription`
+/// may be explicit null, but the key is always selected — so no `default`
+/// here: a missing key means this is a Store entry and must fall through to
+/// the next variant.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeDetails {
+    #[serde(deserialize_with = "crate::decode::deserialize_null_default")]
+    pub long_description: String,
+}
+
+/// One `configuration` entry: either the Home blurb or the Store
+/// configuration. Tried in order — a Home entry would otherwise match
+/// `GameDetails::Empty`, which accepts any object.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+enum StoreConfigs {
+    Home(HomeDetails),
+    Store(GameDetails),
+}
+
+/// Split the `configuration` fragments into the Home long description and
+/// the Store configuration. Absent fragments yield an empty blurb / `Empty`.
+fn split_configurations(entries: Vec<DetailsConfigEntry>) -> StoreDetails {
+    let mut long_description = String::new();
+    let mut details = None;
+    for entry in entries {
+        match entry.configs {
+            Some(StoreConfigs::Home(home)) if long_description.is_empty() => {
+                long_description = home.long_description;
+            }
+            Some(StoreConfigs::Store(store)) if details.is_none() => {
+                details = Some(store);
+            }
+            _ => {}
+        }
+    }
+    StoreDetails {
+        long_description,
+        details: details.unwrap_or(GameDetails::Empty(EmptyGameDetails {})),
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -734,8 +777,6 @@ pub struct CatalogOffer {
     #[serde(default)]
     pub external_links: Option<Vec<ExternalLink>>,
     #[serde(default)]
-    pub long_description: Option<String>,
-    #[serde(default)]
     pub seller: Option<Seller>,
     #[serde(default, deserialize_with = "crate::decode::deserialize_null_default")]
     pub publisher_display_name: String,
@@ -758,14 +799,6 @@ impl CatalogOffer {
             .as_deref()
             .or(self.release_date.as_deref())
             .map(|date| date.get(..10).unwrap_or(date))
-    }
-
-    /// Long blurb when the offer has one, else the short description.
-    pub fn description(&self) -> &str {
-        self.long_description
-            .as_deref()
-            .filter(|description| !description.is_empty())
-            .unwrap_or(&self.description)
     }
 }
 
@@ -855,13 +888,22 @@ pub fn find_main_offer_id(mappings: &[NamespaceMapping]) -> Option<String> {
         .map(|m| m.mappings.offer_id.clone())
 }
 
-/// Combined store info for one product: offer identity/text plus the store
+/// Store info from `getGameDetails`: the Home blurb plus the Store
 /// configuration (languages, tags, requirements).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoreDetails {
+    pub long_description: String,
+    pub details: GameDetails,
+}
+
+/// Combined store info for one product: offer identity/short text plus the
+/// Home blurb and store configuration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GameFullDetails {
     pub offer_id: String,
     pub offer: CatalogOffer,
     pub details: GameDetails,
+    pub long_description: String,
 }
 
 impl GameFullDetails {
@@ -877,8 +919,14 @@ impl GameFullDetails {
         }
     }
 
+    /// Long blurb from `HomeConfiguration` when present, else the offer's
+    /// short description (the offer `longDescription` is unreliable).
     pub fn description(&self) -> &str {
-        self.offer.description()
+        if self.long_description.is_empty() {
+            &self.offer.description
+        } else {
+            &self.long_description
+        }
     }
 
     pub fn release_date(&self) -> Option<&str> {
@@ -962,14 +1010,15 @@ pub async fn get_catalog_offer(
         .ok_or_else(|| anyhow::anyhow!("catalog offer response has no catalogOffer"))
 }
 
-/// Fetch one product's store configuration. `sandbox_id` is the catalog
-/// `namespace`; `locale` is always `en` for now and `templateId` is left
-/// unset. Same store GraphQL endpoint/auth as the library fetch.
+/// Fetch one product's store info: the Home blurb plus the Store
+/// configuration. `sandbox_id` is the catalog `namespace`; `locale` is always
+/// `en` for now and `templateId` is left unset. Same store GraphQL
+/// endpoint/auth as the library fetch.
 pub async fn get_store_details(
     client: &isahc::HttpClient,
     auth_token: &str,
     sandbox_id: &str,
-) -> anyhow::Result<GameDetails> {
+) -> anyhow::Result<StoreDetails> {
     let bytes = post_store_gql(
         client,
         auth_token,
@@ -998,14 +1047,7 @@ pub async fn get_store_details(
         bail!("game details GraphQL response missing data");
     };
 
-    // Missing `configs` (e.g. all `{}` fragments) means no store page.
-    let configs = data
-        .product
-        .sandbox
-        .configuration
-        .into_iter()
-        .find_map(|entry| entry.configs);
-    Ok(configs.unwrap_or(GameDetails::Empty(EmptyGameDetails {})))
+    Ok(split_configurations(data.product.sandbox.configuration))
 }
 
 /// Fetch full store info for one product: resolve the main game's offer id
@@ -1028,10 +1070,12 @@ pub async fn get_game_details(
     )
     .await;
 
+    let store = details_result?;
     Ok(GameFullDetails {
         offer_id,
         offer: offer_result?,
-        details: details_result?,
+        details: store.details,
+        long_description: store.long_description,
     })
 }
 
@@ -1309,18 +1353,15 @@ mod tests {
     fn game_details_deserialize_from_example() {
         let bytes = std::fs::read("tests/getGameDetails.json").unwrap();
         let resp: DetailsGqlResponse = serde_json::from_slice(&bytes).unwrap();
-        let configs: Vec<_> = resp
-            .data
-            .expect("data")
-            .product
-            .sandbox
-            .configuration
-            .into_iter()
-            .filter_map(|entry| entry.configs)
-            .collect();
-        // The other configuration fragments come back as `{}`.
-        assert_eq!(configs.len(), 1);
-        let GameDetails::Full(details) = &configs[0] else {
+        let data = resp.data.expect("data");
+        // Home blurb plus Store configuration; the other fragments are `{}`.
+        assert_eq!(data.product.sandbox.configuration.len(), 4);
+        let store = split_configurations(data.product.sandbox.configuration);
+
+        assert!(store.long_description.contains("ultimate off-road"));
+        assert!(store.long_description.contains("coop multiplayer"));
+
+        let GameDetails::Full(details) = &store.details else {
             panic!("expected full game details");
         };
 
@@ -1349,7 +1390,8 @@ mod tests {
 
     #[test]
     fn product_without_store_page_parses_as_empty() {
-        // Legacy GTA-style: nulls where `FullGameDetails` requires values.
+        // Legacy GTA-style: nulls where `FullGameDetails` requires values,
+        // plus a null Home blurb.
         let bytes = serde_json::json!({
             "data": {
                 "Product": {
@@ -1366,6 +1408,10 @@ mod tests {
                                 "tags": [],
                                 "technicalRequirements": null
                             }
+                        }, {
+                            "configs": {
+                                "longDescription": null
+                            }
                         }]
                     }
                 }
@@ -1373,17 +1419,10 @@ mod tests {
         });
         let resp: DetailsGqlResponse =
             serde_json::from_value(bytes).expect("empty-style response parses");
-        let details = resp
-            .data
-            .expect("data")
-            .product
-            .sandbox
-            .configuration
-            .into_iter()
-            .find_map(|entry| entry.configs)
-            .expect("configs");
-        assert!(!details.has_store_page());
-        assert!(matches!(details, GameDetails::Empty(_)));
+        let store = split_configurations(resp.data.expect("data").product.sandbox.configuration);
+        assert_eq!(store.long_description, "");
+        assert!(!store.details.has_store_page());
+        assert!(matches!(store.details, GameDetails::Empty(_)));
     }
 
     #[test]
@@ -1421,17 +1460,32 @@ mod tests {
         assert_eq!(offer.publisher_display_name, "Focus Entertainment");
         assert_eq!(offer.offer_type, "BASE_GAME");
         assert!(offer.description.contains("ultimate off-road"));
-        assert!(
-            offer
-                .long_description
-                .as_deref()
-                .is_some_and(|v| v.contains("ultimate off-road"))
-        );
         assert_eq!(offer.release_date_trimmed(), Some("2020-11-26"));
         assert!(offer.tags.iter().any(|tag| tag.name == "Single Player"));
         assert!(offer.categories.contains(&"games".to_string()));
         let seller = offer.seller.expect("seller");
         assert_eq!(seller.name, "Focus Entertainment Publishing");
+    }
+
+    #[test]
+    fn full_details_prefers_home_blurb() {
+        let offer = CatalogOffer {
+            description: "short".to_string(),
+            ..CatalogOffer::default()
+        };
+        let full = GameFullDetails {
+            offer_id: "id".to_string(),
+            offer,
+            details: GameDetails::Empty(EmptyGameDetails {}),
+            long_description: "long".to_string(),
+        };
+        assert_eq!(full.description(), "long");
+
+        let fallback = GameFullDetails {
+            long_description: String::new(),
+            ..full
+        };
+        assert_eq!(fallback.description(), "short");
     }
 
     #[test]

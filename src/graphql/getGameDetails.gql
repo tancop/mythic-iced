@@ -2,6 +2,11 @@ query getGameDetails($locale: String!, $sandboxId: String!) {
     Product {
         sandbox(sandboxId: $sandboxId) {
             configuration(locale: $locale, templateId: null) {
+                ... on HomeConfiguration {
+                    configs {
+                        longDescription
+                    }
+                }
                 ... on StoreConfiguration {
                     configs {
                         criticReviews {
