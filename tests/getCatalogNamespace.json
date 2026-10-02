@@ -1,0 +1,71 @@
+{
+  "data": {
+    "Catalog": {
+      "catalogNs": {
+        "mappings": [
+          {
+            "createdDate": "1620233766094",
+            "deletedDate": null,
+            "mappings": {
+              "offerId": "28eed86937124860abf931d936a5b43a"
+            },
+            "pageSlug": "mudrunner--old-timers",
+            "pageType": "offer",
+            "updatedDate": "1786641818441"
+          },
+          {
+            "createdDate": "1620233766107",
+            "deletedDate": null,
+            "mappings": {
+              "offerId": "408f11f822b64c2b8572671fac8d8d24"
+            },
+            "pageSlug": "mudrunner--american-wilds-expansion",
+            "pageType": "offer",
+            "updatedDate": "1786641818489"
+          },
+          {
+            "createdDate": "1620233766063",
+            "deletedDate": null,
+            "mappings": {
+              "offerId": "db198a92c7534d24babb9a44440d2379"
+            },
+            "pageSlug": "mudrunner--american-wilds-edition",
+            "pageType": "offer",
+            "updatedDate": "1786641818535"
+          },
+          {
+            "createdDate": "1620233766081",
+            "deletedDate": null,
+            "mappings": {
+              "offerId": "0648b0d2c52f450b904aaea62a5c5abf"
+            },
+            "pageSlug": "mudrunner--the-ridge",
+            "pageType": "offer",
+            "updatedDate": "1786641818594"
+          },
+          {
+            "createdDate": "1620233766066",
+            "deletedDate": null,
+            "mappings": {
+              "offerId": "6b808b47a647476c83ec11b90c307fec"
+            },
+            "pageSlug": "mudrunner--the-valley",
+            "pageType": "offer",
+            "updatedDate": "1786641818647"
+          },
+          {
+            "createdDate": "1620233766078",
+            "deletedDate": null,
+            "mappings": {
+              "offerId": "7aea960be7dd4d86a9b30cf5daa03eeb"
+            },
+            "pageSlug": "mudrunner",
+            "pageType": "productHome",
+            "updatedDate": "1786641818705"
+          }
+        ],
+        "store": "EGS"
+      }
+    }
+  }
+}

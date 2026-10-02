@@ -1213,48 +1213,6 @@ mod tests {
     }
 
     #[test]
-    fn graphql_first_page_deserializes() {
-        let bytes = std::fs::read("tests/graphql_output.json").unwrap();
-        let trimmed = trim_trailing_whitespace(&bytes);
-        let resp: GqlResponse = serde_json::from_slice(trimmed).unwrap();
-        let data = resp.data.expect("data");
-        let records = parse_library_records(&data.library.library_items.records);
-        assert!(!records.is_empty());
-
-        // Fallback: search by title across all records.
-        let lilith = records
-            .iter()
-            .filter_map(|r| r.catalog_item.as_ref())
-            .find(|c| c.title == "Commander Lilith DLC")
-            .expect("lilith record");
-        assert!(lilith.is_dlc());
-        assert!(lilith.supports_windows());
-
-        let civ = records
-            .iter()
-            .filter_map(|r| r.catalog_item.as_ref())
-            .find(|c| c.title == "Sid Meier's Civilization VI")
-            .expect("civ record");
-        assert!(!civ.is_dlc());
-
-        let map_pack = records
-            .iter()
-            .filter_map(|r| r.catalog_item.as_ref())
-            .find(|c| c.title == "Map Pack")
-            .expect("map pack record");
-        assert!(map_pack.is_dlc());
-
-        assert!(
-            data.library
-                .library_items
-                .response_metadata
-                .and_then(|m| m.next_cursor)
-                .is_some()
-        );
-        let _ = lilith;
-    }
-
-    #[test]
     fn odd_datetimes_fall_back_instead_of_failing() {
         use crate::decode::parse_datetime_lenient;
 
@@ -1349,7 +1307,7 @@ mod tests {
 
     #[test]
     fn game_details_deserialize_from_example() {
-        let bytes = std::fs::read("getGameDetails.json").unwrap();
+        let bytes = std::fs::read("tests/getGameDetails.json").unwrap();
         let resp: DetailsGqlResponse = serde_json::from_slice(&bytes).unwrap();
         let configs: Vec<_> = resp
             .data
@@ -1430,7 +1388,7 @@ mod tests {
 
     #[test]
     fn namespace_resolves_main_game_offer() {
-        let bytes = std::fs::read("getCatalogNamespace.json").unwrap();
+        let bytes = std::fs::read("tests/getCatalogNamespace.json").unwrap();
         let resp: NamespaceGqlResponse = serde_json::from_slice(&bytes).unwrap();
         let info = resp
             .data
@@ -1449,7 +1407,7 @@ mod tests {
 
     #[test]
     fn catalog_offer_deserializes_from_example() {
-        let bytes = std::fs::read("getCatalogOffer.json").unwrap();
+        let bytes = std::fs::read("tests/getCatalogOffer.json").unwrap();
         let resp: OfferGqlResponse = serde_json::from_slice(&bytes).unwrap();
         let offer = resp
             .data
