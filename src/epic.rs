@@ -1113,11 +1113,20 @@ pub async fn get_game_manifest(
     Ok(res.text().await?)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum CriticRating {
+    Weak,
+    Fair,
+    Strong,
+    Mighty,
+}
+
 /// OpenCritic score kept on each library item: average score, recommend
 /// percentage and the OpenCritic page URL. All other API fields are ignored.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CriticScore {
     pub average: i32,
+    pub rating: CriticRating,
     pub recommend_percentage: i32,
     pub url: String,
 }
@@ -1125,15 +1134,12 @@ pub struct CriticScore {
 impl CriticScore {
     /// Rating word on the OpenCritic scale (Mighty/Strong/Fair/Weak),
     /// derived from the average score.
-    pub fn rating(&self) -> &'static str {
-        if self.average >= 84 {
-            "Mighty"
-        } else if self.average >= 75 {
-            "Strong"
-        } else if self.average >= 66 {
-            "Fair"
-        } else {
-            "Weak"
+    pub fn text_rating(&self) -> &'static str {
+        match self.rating {
+            CriticRating::Mighty => "Mighty",
+            CriticRating::Strong => "Strong",
+            CriticRating::Fair => "Fair",
+            CriticRating::Weak => "Weak",
         }
     }
 }
@@ -1152,6 +1158,8 @@ struct OpenCriticReviews {
     #[serde(default)]
     recommend_percentage: Option<i32>,
     #[serde(default)]
+    critic_rating: Option<CriticRating>,
+    #[serde(default)]
     url: Option<String>,
 }
 
@@ -1162,10 +1170,11 @@ fn parse_critic_response(bytes: &[u8]) -> anyhow::Result<Option<CriticScore>> {
     let Some(reviews) = resp.critic_reviews else {
         return Ok(None);
     };
-    let (Some(average), Some(recommend_percentage), Some(url)) = (
+    let (Some(average), Some(recommend_percentage), Some(url), Some(rating)) = (
         reviews.critic_average,
         reviews.recommend_percentage,
         reviews.url,
+        reviews.critic_rating,
     ) else {
         return Ok(None);
     };
@@ -1176,6 +1185,7 @@ fn parse_critic_response(bytes: &[u8]) -> anyhow::Result<Option<CriticScore>> {
         average,
         recommend_percentage,
         url,
+        rating,
     }))
 }
 
@@ -1649,24 +1659,7 @@ mod tests {
             score.url,
             "https://opencritic.com/game/2719/sid-meiers-civilization-vi"
         );
-        assert_eq!(score.rating(), "Mighty");
-    }
-
-    #[test]
-    fn critic_rating_follows_opencritic_scale() {
-        let score = |average: i32| CriticScore {
-            average,
-            recommend_percentage: 0,
-            url: "https://opencritic.com/game/1/x".to_string(),
-        };
-        assert_eq!(score(100).rating(), "Mighty");
-        assert_eq!(score(84).rating(), "Mighty");
-        assert_eq!(score(83).rating(), "Strong");
-        assert_eq!(score(75).rating(), "Strong");
-        assert_eq!(score(74).rating(), "Fair");
-        assert_eq!(score(66).rating(), "Fair");
-        assert_eq!(score(65).rating(), "Weak");
-        assert_eq!(score(0).rating(), "Weak");
+        assert_eq!(score.text_rating(), "Mighty");
     }
 
     #[test]

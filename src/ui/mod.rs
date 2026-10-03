@@ -8,6 +8,8 @@ pub mod navbar;
 pub(crate) mod theme;
 pub mod virtual_grid;
 
+pub mod widgets;
+
 pub fn get_theme() -> Custom {
     Custom::new("Mythic".into(), theme::MAIN_PALETTE)
 }

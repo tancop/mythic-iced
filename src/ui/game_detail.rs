@@ -1,13 +1,23 @@
 use iced::{
-    Element, Length,
+    Color, Element, Length,
+    wgpu::naga::DerivativeAxis::Width,
     widget::{column, container, image, markdown, row, scrollable, text},
 };
+use iced_widget::canvas;
 
 use crate::{
     Message, State,
-    epic::{GameDetails, TechRequirement},
+    epic::{CriticRating, GameDetails, TechRequirement},
     images::PixelData,
-    ui::{TextWidgetExt, library::GRID_CONFIG},
+    ui::{
+        TextWidgetExt,
+        library::GRID_CONFIG,
+        theme::{
+            INFO, MAIN_PALETTE, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
+            OPENCRITIC_WEAK,
+        },
+        widgets::progress_circle::ProgressCircle,
+    },
 };
 
 fn centered(label: &str) -> Element<'_, Message> {
@@ -138,6 +148,15 @@ fn requirements<'a>(platform: &str, reqs: &[TechRequirement]) -> Element<'a, Mes
     body.spacing(8).into()
 }
 
+fn opencritic_color(rating: CriticRating) -> Color {
+    match rating {
+        CriticRating::Weak => OPENCRITIC_WEAK,
+        CriticRating::Fair => OPENCRITIC_FAIR,
+        CriticRating::Strong => OPENCRITIC_STRONG,
+        CriticRating::Mighty => OPENCRITIC_MIGHTY,
+    }
+}
+
 pub fn view(state: &State) -> Element<'_, Message> {
     let Some(items) = &state.catalog_items else {
         return centered("Loading...");
@@ -184,15 +203,46 @@ pub fn view(state: &State) -> Element<'_, Message> {
         identity = identity.push(meta_row("Publisher", &offer.publisher_display_name));
     }
     if let Some(critic) = item.critic.as_ref() {
-        identity = identity.push(meta_row(
-            "OpenCritic",
-            &format!(
-                "{} {} ({}% recommended)",
-                critic.average,
-                critic.rating(),
-                critic.recommend_percentage
-            ),
-        ));
+        let score = column![
+            canvas(ProgressCircle {
+                progress: critic.average as f32 / 100.0,
+                color: opencritic_color(critic.rating),
+                text: critic.average.to_string(),
+                font: &crate::BOLD_FONT,
+                text_size: crate::HEADING_TEXT_SIZE.into(),
+            })
+            .height(60.0)
+            .width(60.0),
+            text!("{}", critic.text_rating())
+                .size(12)
+                .width(Length::Fill)
+                .bold()
+                .center(),
+        ]
+        .spacing(4)
+        .width(Length::Shrink);
+
+        let recommend = column![
+            canvas(ProgressCircle {
+                progress: critic.recommend_percentage as f32 / 100.0,
+                color: INFO,
+                text: format!("{}%", critic.recommend_percentage),
+                font: &crate::BOLD_FONT,
+                text_size: crate::HEADING_TEXT_SIZE.into(),
+            })
+            .height(60.0)
+            .width(60.0),
+            text!("Recommend")
+                .size(12)
+                .width(Length::Fill)
+                .bold()
+                .center(),
+        ]
+        .spacing(4)
+        .width(Length::Shrink);
+
+        identity = identity.push(row![score, recommend].spacing(16));
+
         if !critic.url.is_empty() {
             identity = identity.push(text!("{}", critic.url).size(12));
         }

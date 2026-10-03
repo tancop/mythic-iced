@@ -294,6 +294,8 @@ mod label_tests {
 
 #[cfg(test)]
 mod tests {
+    use crate::epic::CriticRating;
+
     use super::*;
 
     fn scored_item(title: &str) -> CatalogItem {
@@ -357,6 +359,7 @@ mod tests {
             critic: average.map(|average| crate::epic::CriticScore {
                 average,
                 recommend_percentage: 90,
+                rating: CriticRating::Mighty,
                 url: format!("https://opencritic.com/game/{title}"),
             }),
             ..scored_item(title)
