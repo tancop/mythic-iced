@@ -161,7 +161,9 @@ pub fn effective_sort_key(state: &State) -> SortKey {
 }
 
 /// Resets the tracked offset, drives the real scrollbar to the top, and
-/// refreshes the visible cards.
+/// refreshes the visible cards. Only for search/sort changes; anything
+/// else that reshapes the grid (DLC filter, navigation, critic arrivals)
+/// must preserve the user's scroll position.
 fn scroll_and_refresh(state: &mut State) -> Task<Message> {
     state.scroll_offset = 0.0;
     Task::batch([
@@ -187,7 +189,8 @@ pub fn set_sort_reverse(state: &mut State, reverse: bool) -> Task<Message> {
 pub fn set_dlc_filter(state: &mut State, rule: FilterRule) -> Task<Message> {
     state.filter_dlc = rule;
     rebuild_order(state);
-    scroll_and_refresh(state)
+    // No scroll reset: reshaping the grid must not lose the user's place.
+    crate::library::refresh_visible(state)
 }
 
 pub fn set_search_query(state: &mut State, query: String) -> Task<Message> {
@@ -420,5 +423,39 @@ mod tests {
             false,
         );
         assert_eq!(order, ["Alpha", "Bravo", "Unrated A", "Unrated B"]);
+    }
+
+    fn scrolled_state(offset: f32) -> State {
+        let mut state = State::default();
+        state.scroll_offset = offset;
+        state
+    }
+
+    #[test]
+    fn sort_key_change_resets_scroll() {
+        let mut state = scrolled_state(500.0);
+        let _ = set_sort_key(&mut state, SortKey::ReleaseDate);
+        assert_eq!(state.scroll_offset, 0.0);
+    }
+
+    #[test]
+    fn sort_direction_change_resets_scroll() {
+        let mut state = scrolled_state(500.0);
+        let _ = set_sort_reverse(&mut state, true);
+        assert_eq!(state.scroll_offset, 0.0);
+    }
+
+    #[test]
+    fn search_query_change_resets_scroll() {
+        let mut state = scrolled_state(500.0);
+        let _ = set_search_query(&mut state, "civ".to_string());
+        assert_eq!(state.scroll_offset, 0.0);
+    }
+
+    #[test]
+    fn dlc_filter_change_preserves_scroll() {
+        let mut state = scrolled_state(500.0);
+        let _ = set_dlc_filter(&mut state, FilterRule::Only);
+        assert_eq!(state.scroll_offset, 500.0);
     }
 }

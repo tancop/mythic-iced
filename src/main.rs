@@ -176,7 +176,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::CriticLoaded { id, score } => library::handle_critic_loaded(state, id, score),
         Message::Navigate(page) => {
             state.page = page;
-            Task::none()
+            // The grid scrollable is recreated at the top when its view
+            // is rebuilt, so snap it back to the saved position instead
+            // of losing the user's place in the library.
+            if page == Page::Library {
+                crate::ui::virtual_grid::scroll_to_offset(state.scroll_offset)
+            } else {
+                Task::none()
+            }
         }
     }
 }

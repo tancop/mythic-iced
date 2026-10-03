@@ -19,6 +19,13 @@ pub fn scroll_to_top<Message>() -> Task<Message> {
     scroll_to(GRID_SCROLL_ID, AbsoluteOffset { x: 0.0, y: 0.0 })
 }
 
+/// Task that restores the grid scrollbar to a previously saved offset.
+/// Needed when returning to the library: its scrollable is recreated at
+/// the top while `state.scroll_offset` still holds the old position.
+pub fn scroll_to_offset<Message>(y: f32) -> Task<Message> {
+    scroll_to(GRID_SCROLL_ID, AbsoluteOffset { x: 0.0, y })
+}
+
 /// Everything about the grid layout that a caller might want to tune.
 #[derive(Clone, Copy, Debug)]
 pub struct GridConfig {
