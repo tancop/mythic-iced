@@ -5,7 +5,12 @@ use iced::Task;
 
 use crate::{Message, State, epic::CatalogItem};
 
-pub const SORT_KEYS: [SortKey; 3] = [SortKey::ReleaseDate, SortKey::PurchaseDate, SortKey::Title];
+pub const SORT_KEYS: [SortKey; 4] = [
+    SortKey::ReleaseDate,
+    SortKey::PurchaseDate,
+    SortKey::Title,
+    SortKey::Critic,
+];
 pub const DLC_FILTERS: [FilterRule; 3] = [FilterRule::Allow, FilterRule::Only, FilterRule::Block];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -14,6 +19,7 @@ pub enum SortKey {
     PurchaseDate,
     #[default]
     Title,
+    Critic,
     // Active while the search box is non-empty. Never offered in the
     // dropdown; the pick list just displays it as the current mode.
     Search,
@@ -30,6 +36,8 @@ impl SortKey {
             (SortKey::PurchaseDate, true) => "Last purchased",
             (SortKey::Title, false) => "Title A-Z",
             (SortKey::Title, true) => "Title Z-A",
+            (SortKey::Critic, false) => "Best rated",
+            (SortKey::Critic, true) => "Worst rated",
             (SortKey::Search, _) => "Search",
         }
     }
@@ -51,7 +59,7 @@ impl fmt::Display for SortOption {
 }
 
 /// Dropdown options reflecting the current direction.
-pub fn sort_options(reversed: bool) -> [SortOption; 3] {
+pub fn sort_options(reversed: bool) -> [SortOption; 4] {
     SORT_KEYS.map(|key| SortOption { key, reversed })
 }
 
@@ -102,7 +110,10 @@ pub fn rebuild_order(state: &mut State) {
                 .filter(|&i| is_included(state, &items[i]))
                 .collect();
             order.sort_by(|&a, &b| compare(state, &items[a], &items[b]));
-            if state.sort_reverse {
+            // Critic sort pins unrated games at the bottom in both
+            // directions, so its comparator already accounts for
+            // `sort_reverse` and must not be flipped again here.
+            if effective_sort_key(state) != SortKey::Critic && state.sort_reverse {
                 order.reverse();
             }
             order
@@ -121,6 +132,22 @@ fn compare(state: &State, a: &CatalogItem, b: &CatalogItem) -> Ordering {
             .cmp(&state.purchase_dates.get(&b.id)),
         // Best match first.
         SortKey::Search => relevance_score(state, b).total_cmp(&relevance_score(state, a)),
+        // Best rated first by default (`sort_reverse` selects worst first).
+        // Unrated games always sort last, in both directions.
+        SortKey::Critic => match (&a.critic, &b.critic) {
+            (Some(x), Some(y)) => {
+                let ord = y.average.cmp(&x.average);
+                let ord = if state.sort_reverse {
+                    ord.reverse()
+                } else {
+                    ord
+                };
+                ord.then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+            }
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+        },
     }
 }
 
@@ -243,6 +270,8 @@ mod label_tests {
         assert_eq!(SortKey::PurchaseDate.label(true), "Last purchased");
         assert_eq!(SortKey::ReleaseDate.label(false), "First released");
         assert_eq!(SortKey::ReleaseDate.label(true), "Last released");
+        assert_eq!(SortKey::Critic.label(false), "Best rated");
+        assert_eq!(SortKey::Critic.label(true), "Worst rated");
         assert_eq!(SortKey::Search.label(false), "Search");
         assert_eq!(SortKey::Search.label(true), "Search");
     }
@@ -252,7 +281,12 @@ mod label_tests {
         let options = sort_options(true);
         assert_eq!(
             options.map(|o| o.to_string()),
-            ["Last released", "Last purchased", "Title Z-A"]
+            [
+                "Last released",
+                "Last purchased",
+                "Title Z-A",
+                "Worst rated"
+            ]
         );
         assert!(options.iter().all(|o| o.reversed));
     }
@@ -316,5 +350,72 @@ mod tests {
 
         let score = relevance_score(&state, &scored_item("The"));
         assert!(score.is_finite());
+    }
+
+    fn critic_item(title: &str, average: Option<i32>) -> CatalogItem {
+        CatalogItem {
+            critic: average.map(|average| crate::epic::CriticScore {
+                average,
+                recommend_percentage: 90,
+                url: format!("https://opencritic.com/game/{title}"),
+            }),
+            ..scored_item(title)
+        }
+    }
+
+    fn critic_order(items: Vec<CatalogItem>, reversed: bool) -> Vec<String> {
+        let mut state = State::default();
+        state.sort_key = SortKey::Critic;
+        state.sort_reverse = reversed;
+        state.catalog_items = Some(items);
+        rebuild_order(&mut state);
+        let items = state.catalog_items.as_ref().expect("items");
+        state
+            .order
+            .iter()
+            .map(|&i| items[i].title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn critic_sort_puts_best_first_and_unrated_last() {
+        let order = critic_order(
+            vec![
+                critic_item("Low", Some(60)),
+                critic_item("Unrated", None),
+                critic_item("High", Some(90)),
+                critic_item("Mid", Some(75)),
+            ],
+            false,
+        );
+        assert_eq!(order, ["High", "Mid", "Low", "Unrated"]);
+    }
+
+    #[test]
+    fn critic_sort_worst_first_keeps_unrated_last() {
+        let order = critic_order(
+            vec![
+                critic_item("Low", Some(60)),
+                critic_item("Unrated", None),
+                critic_item("High", Some(90)),
+                critic_item("Mid", Some(75)),
+            ],
+            true,
+        );
+        assert_eq!(order, ["Low", "Mid", "High", "Unrated"]);
+    }
+
+    #[test]
+    fn critic_sort_ties_break_by_title() {
+        let order = critic_order(
+            vec![
+                critic_item("Bravo", Some(80)),
+                critic_item("Alpha", Some(80)),
+                critic_item("Unrated B", None),
+                critic_item("Unrated A", None),
+            ],
+            false,
+        );
+        assert_eq!(order, ["Alpha", "Bravo", "Unrated A", "Unrated B"]);
     }
 }

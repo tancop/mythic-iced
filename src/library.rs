@@ -184,6 +184,9 @@ pub fn handle_critic_loaded(
     {
         item.critic = score;
     }
+    // Scores stream in after the library loads; keep the display order
+    // current so a critic sort settles as results arrive.
+    search::rebuild_order(state);
     Task::none()
 }
 
