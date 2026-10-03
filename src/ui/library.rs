@@ -1,6 +1,8 @@
 use iced::{
-    Alignment, Color, Element, Length, Theme,
-    widget::{column, container, image, mouse_area, pick_list, row, text, text_input},
+    Alignment, Color, Element, Length, Padding, Theme,
+    widget::{
+        column, container, image, mouse_area, pick_list, row, space, stack, text, text_input,
+    },
 };
 
 use iced::widget::container::Style;
@@ -11,7 +13,7 @@ use crate::{
     search::{DLC_FILTERS, SortOption, effective_sort_key, sort_options},
     ui::{
         TextWidgetExt,
-        icons::{UP_DOWN_ARROW, icon_button},
+        icons::{UP_DOWN_ARROW, X_MARK, icon_button},
         theme::BRAND_COLOR,
         virtual_grid::{self, GridConfig, GridViewport},
     },
@@ -26,20 +28,60 @@ pub const GRID_CONFIG: GridConfig = GridConfig {
 };
 
 pub fn view(state: &State) -> Element<'_, Message> {
-    let toolbar = row![
+    // The field always renders as the same widget tree (a stack with the
+    // input underneath) so the text input keeps focus while typing:
+    // swapping the whole field on the first keystroke would despawn the
+    // focused input. Only the overlay button itself is conditional. The
+    // input keeps extra right padding so long queries don't slide
+    // underneath the button.
+    let mut overlay = row![space::horizontal()]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::Center)
+        .padding(Padding {
+            top: 0.0,
+            right: 8.0,
+            bottom: 0.0,
+            left: 0.0,
+        });
+    if !state.search_query.is_empty() {
+        overlay = overlay.push(icon_button(
+            X_MARK,
+            Color::WHITE,
+            Message::SearchQueryChanged(String::new()),
+        ));
+    }
+
+    let search_field: Element<'_, Message> = stack![
         text_input("Search...", &state.search_query)
             .on_input(Message::SearchQueryChanged)
+            .padding(Padding {
+                top: 5.0,
+                right: 28.0,
+                bottom: 5.0,
+                left: 5.0,
+            })
             .width(Length::Fill),
-        text!("Sort:"),
-        pick_list(
+        overlay,
+    ]
+    .width(Length::Fill)
+    .into();
+
+    let mut toolbar = row![search_field]
+        .spacing(GRID_CONFIG.spacing)
+        .align_y(Alignment::Center);
+
+    toolbar = toolbar
+        .push(text!("Sort:"))
+        .push(pick_list(
             sort_options(state.sort_reverse),
             Some(SortOption {
                 key: effective_sort_key(state),
                 reversed: state.sort_reverse,
             }),
             |option| Message::SortKeySelected(option.key),
-        ),
-        icon_button(
+        ))
+        .push(icon_button(
             UP_DOWN_ARROW,
             if state.sort_reverse {
                 BRAND_COLOR
@@ -47,16 +89,13 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 Color::WHITE
             },
             Message::SortReverseToggled(!state.sort_reverse),
-        ),
-        text!("Show:"),
-        pick_list(
+        ))
+        .push(text!("Show:"))
+        .push(pick_list(
             &DLC_FILTERS[..],
             Some(state.filter_dlc),
-            Message::DlcFilterSelected
-        ),
-    ]
-    .spacing(GRID_CONFIG.spacing)
-    .align_y(Alignment::Center);
+            Message::DlcFilterSelected,
+        ));
 
     let Some(items) = &state.catalog_items else {
         return container(text!("Loading...")).center(Length::Fill).into();
@@ -128,4 +167,21 @@ fn placeholder_card(card_w: f32, card_h: f32) -> Element<'static, Message> {
         .center_y(Length::Fixed(card_h))
         .clip(true)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toolbar_builds_with_and_without_query() {
+        // The clear button only exists for a non-empty query; both
+        // variants must build without panicking.
+        let _ = view(&State::default());
+        let state = State {
+            search_query: "civ".to_string(),
+            ..State::default()
+        };
+        let _ = view(&state);
+    }
 }

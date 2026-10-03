@@ -6,6 +6,7 @@ use iced::{
 use crate::FA_SOLID;
 
 pub const UP_DOWN_ARROW: char = '\u{f338}';
+pub const X_MARK: char = '\u{f00d}';
 
 /// Font Awesome icon shown at all times on a transparent background; state
 /// is communicated only through the icon color, which the caller picks.
