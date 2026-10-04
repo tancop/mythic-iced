@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use iced::{Element, Font, Settings, Task, Theme};
+use iced::{Element, Font, Settings, Size, Task, Theme, window};
 use smart_default::SmartDefault;
 
 use crate::images::PixelData;
@@ -55,6 +55,11 @@ fn main() {
         })
         .font(INTER_FONT_FILE)
         .font(FA_SOLID_FILE)
+        .window(window::Settings {
+            position: window::Position::Centered,
+            size: Size::new(1024.0, 640.0),
+            ..Default::default()
+        })
         .run()
         .unwrap();
 }
