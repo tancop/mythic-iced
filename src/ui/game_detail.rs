@@ -51,10 +51,11 @@ fn fix_link_spacing(line: &str) -> String {
     out
 }
 
-/// Normalize Epic's `longDescription` flavor into strict markdown:
-/// comments become paragraphs, `•` bullets become lists, `[label] (url)`
-/// gaps are closed, and single newlines become hard line breaks. Fenced code
-/// blocks pass through untouched.
+/// Normalize Epic's `longDescription` flavor into strict markdown: only `•`
+/// starts a list, `[label] (url)` gaps are closed, and single newlines become
+/// hard line breaks. Every other list marker (`*`, `-`, `+`, `1.`/`1)`) is
+/// backslash-escaped so it renders verbatim instead of starting a list.
+/// Fenced code blocks pass through untouched.
 pub fn clean_description(raw: &str) -> String {
     let raw_lines: Vec<&str> = raw.lines().collect();
 
@@ -74,6 +75,8 @@ pub fn clean_description(raw: &str) -> String {
         let mut fixed = fix_link_spacing(line);
         if let Some(bullet) = fixed.trim_start().strip_prefix('•') {
             fixed = format!("- {}", bullet.trim_start());
+        } else if let Some(escaped) = escape_list_marker(&fixed) {
+            fixed = escaped;
         }
         lines.push((fixed, false));
     }
@@ -103,6 +106,46 @@ pub fn clean_description(raw: &str) -> String {
         collapsed = collapsed.replace("\n\n\n", "\n\n");
     }
     collapsed
+}
+
+/// Backslash-escape a markdown list marker so the line renders verbatim
+/// instead of starting a list. Only `•` starts a list; a leading `*`, `-`
+/// or `+` followed by a space, or an ordered `1.`/`1)` marker (e.g. 911
+/// Operator's `*` legal disclaimer), is escaped. Doubled markers (`**bold**`,
+/// `---` rules) and `*emphasis*` are left alone, preserving indentation.
+fn escape_list_marker(line: &str) -> Option<String> {
+    let indent_len = line.len() - line.trim_start().len();
+    let (indent, trimmed) = line.split_at(indent_len);
+    if let Some(marker) = trimmed
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '*' | '-' | '+'))
+    {
+        let rest = &trimmed[marker.len_utf8()..];
+        if !rest.starts_with(marker) && rest.starts_with([' ', '\t']) {
+            return Some(format!("{indent}\\{marker}{rest}"));
+        }
+        return None;
+    }
+    let digit_len: usize = trimmed
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .map(char::len_utf8)
+        .sum();
+    if digit_len > 0 && digit_len <= 9 {
+        let after_digits = &trimmed[digit_len..];
+        if let Some(sep) = after_digits
+            .chars()
+            .next()
+            .filter(|c| matches!(c, '.' | ')'))
+        {
+            let rest = &after_digits[sep.len_utf8()..];
+            if rest.starts_with([' ', '\t']) {
+                return Some(format!("{indent}{}\\{}{rest}", &trimmed[..digit_len], sep));
+            }
+        }
+    }
+    None
 }
 
 /// Clean Epic's description and parse it for `markdown::view_with`. Called
@@ -487,6 +530,62 @@ mod tests {
                 .iter()
                 .any(|item| matches!(item, markdown::Item::List { .. })),
             "feature bullets should parse as a list"
+        );
+    }
+
+    #[test]
+    fn asterisk_does_not_start_a_list() {
+        assert_eq!(clean_description("* first"), "\\* first");
+        assert_eq!(clean_description("  * indented"), "\\* indented");
+        // No-space `*item` was already verbatim; it stays untouched.
+        assert_eq!(clean_description("*item"), "*item");
+
+        for raw in ["* first\n* second", "*first\n*second"] {
+            let items = parse_description(raw);
+            assert!(
+                items
+                    .iter()
+                    .all(|item| !matches!(item, markdown::Item::List { .. })),
+                "asterisk must stay verbatim for {raw:?}, got {items:?}"
+            );
+        }
+        let dump = format!("{:?}", parse_description("* first\n* second"));
+        assert!(dump.contains("* first"), "marker kept: {dump}");
+        assert!(dump.contains("* second"), "marker kept: {dump}");
+    }
+
+    #[test]
+    fn other_markers_do_not_start_lists() {
+        assert_eq!(clean_description("- item"), "\\- item");
+        assert_eq!(clean_description("+ item"), "\\+ item");
+        assert_eq!(clean_description("1. first"), "1\\. first");
+        assert_eq!(clean_description("2) second"), "2\\) second");
+
+        for raw in ["- a\n- b", "+ a\n+ b", "1. a\n2. b"] {
+            let items = parse_description(raw);
+            assert!(
+                items
+                    .iter()
+                    .all(|item| !matches!(item, markdown::Item::List { .. })),
+                "only • starts a list for {raw:?}, got {items:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn double_star_and_emphasis_are_kept() {
+        // Bold, rules and whole-line emphasis are not lists either.
+        assert_eq!(clean_description("**bold**"), "**bold**");
+        assert_eq!(clean_description("***"), "***");
+        assert_eq!(clean_description("---"), "---");
+        assert_eq!(clean_description("*emphasis*"), "*emphasis*");
+        // `**bold**` still parses as strong text, not a list.
+        let items = parse_description("**bold**");
+        assert!(
+            items
+                .iter()
+                .all(|item| !matches!(item, markdown::Item::List { .. })),
+            "bold must not become a list: {items:?}"
         );
     }
 }
