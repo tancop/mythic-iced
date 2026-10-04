@@ -1,7 +1,6 @@
 use iced::{
-    Color, Element, Length,
-    wgpu::naga::DerivativeAxis::Width,
-    widget::{column, container, image, markdown, row, scrollable, text},
+    Color, Element, Length, Padding,
+    widget::{column, container, image, markdown, rich_text, row, scrollable, text},
 };
 use iced_widget::canvas;
 
@@ -12,10 +11,7 @@ use crate::{
     ui::{
         TextWidgetExt,
         library::GRID_CONFIG,
-        theme::{
-            INFO, MAIN_PALETTE, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
-            OPENCRITIC_WEAK,
-        },
+        theme::{INFO, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG, OPENCRITIC_WEAK},
         widgets::progress_circle::ProgressCircle,
     },
 };
@@ -109,25 +105,89 @@ pub fn clean_description(raw: &str) -> String {
     collapsed
 }
 
-/// Clean Epic's description and parse it for `markdown::view`. Called once
-/// when details load; the items are stored in `State::detail_bodies` because
-/// the view borrows them.
+/// Clean Epic's description and parse it for `markdown::view_with`. Called
+/// once when details load; only the parsed items are stored in
+/// `State::detail_bodies` because the view borrows them. Layout (spacing,
+/// widths, viewer style) is rebuilt dynamically on every view so it stays
+/// responsive.
 pub fn parse_description(raw: &str) -> Vec<markdown::Item> {
     markdown::parse(&clean_description(raw)).collect()
 }
 
 fn markdown_settings() -> markdown::Settings {
-    markdown::Settings::with_text_size(
+    let mut settings = markdown::Settings::with_text_size(
         crate::DEFAULT_TEXT_SIZE as f32,
         markdown::Style {
             font: crate::UI_FONT,
             ..markdown::Style::from_palette(crate::ui::theme::MAIN_PALETTE)
         },
+    );
+    // Epic's scale is much tighter than iced's default (h1 is double size):
+    // h1 is 4pt larger bold, h2 is 2pt larger.
+    settings.h1_size = settings.text_size + 4.0;
+    settings.h2_size = settings.text_size + 2.0;
+    settings
+}
+
+/// Epic-flavored markdown viewer: descriptions use `#` headings for section
+/// titles, but iced's default h1 is double-size medium. Epic renders h1 as
+/// 4pt-larger bold instead (h2 size + 2pt), so remap h1 to that style.
+struct DetailViewer;
+
+impl<'a> markdown::Viewer<'a, Message> for DetailViewer {
+    fn on_link_click(url: markdown::Uri) -> Message {
+        let _ = url;
+        Message::Ignored
+    }
+
+    fn heading(
+        &self,
+        settings: markdown::Settings,
+        level: &'a markdown::HeadingLevel,
+        text: &'a markdown::Text,
+        index: usize,
+    ) -> Element<'a, Message> {
+        if *level == markdown::HeadingLevel::H1 {
+            let style = markdown::Style {
+                font: crate::BOLD_FONT,
+                ..settings.style
+            };
+            return container(
+                rich_text(text.spans(style))
+                    .on_link_click(Self::on_link_click)
+                    .size(settings.h2_size + 2.0)
+                    .font(crate::BOLD_FONT),
+            )
+            .padding(iced::padding::top(if index > 0 {
+                settings.text_size / 2.0
+            } else {
+                iced::Pixels::ZERO
+            }))
+            .into();
+        }
+        markdown::heading(settings, level, text, index, Self::on_link_click)
+    }
+}
+
+fn detail_scrollable(content: iced::widget::Column<'_, Message>) -> Element<'_, Message> {
+    container(
+        scrollable(content.height(Length::Shrink).width(Length::Fill))
+            .height(Length::Fill)
+            .width(Length::Fill)
+            .on_scroll(|viewport| {
+                let bounds = viewport.bounds();
+                Message::DetailViewport {
+                    width: bounds.width,
+                    height: bounds.height,
+                }
+            }),
     )
+    .padding(24)
+    .into()
 }
 
 fn requirements<'a>(platform: &str, reqs: &[TechRequirement]) -> Element<'a, Message> {
-    let mut body = column![text!("System requirements ({platform})").bold()].spacing(4);
+    let mut body = column![text!("System requirements ({platform})").bold()].spacing(8);
     for req in reqs {
         if is_none_or_empty(&req.minimum) && is_none_or_empty(&req.recommended) {
             continue;
@@ -142,10 +202,10 @@ fn requirements<'a>(platform: &str, reqs: &[TechRequirement]) -> Element<'a, Mes
                 )
                 .size(14),
             ]
-            .spacing(2),
+            .spacing(4),
         );
     }
-    body.spacing(8).into()
+    body.spacing(12).into()
 }
 
 fn opencritic_color(rating: CriticRating) -> Color {
@@ -194,7 +254,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     // Narrow identity column next to the cover; the long description gets the
     // full width below.
     let mut identity = column![text!("{}", title).bold().size(24)]
-        .spacing(4)
+        .spacing(8)
         .width(Length::Fill);
     if !offer.developer_display_name.is_empty() {
         identity = identity.push(meta_row("Developer", &offer.developer_display_name));
@@ -248,16 +308,32 @@ pub fn view(state: &State) -> Element<'_, Message> {
         }
     }
 
-    let mut content = column![row![cover, identity].spacing(16)].spacing(12);
+    let mut content = column![row![cover, identity].spacing(24)]
+        .spacing(20)
+        .width(Length::Fill);
 
     if let Some(description) = state.detail_bodies.get(&item.namespace) {
-        content = content
-            .push(markdown::view(description, markdown_settings()).map(|_| Message::Ignored));
+        // Only the parsed items are cached in `State::detail_bodies`; the
+        // layout (spacing, width, viewer style) is rebuilt every view so it
+        // stays responsive to window size.
+        content = content.push(
+            container(markdown::view_with(
+                description,
+                markdown_settings(),
+                &DetailViewer,
+            ))
+            .width(Length::Fill)
+            .padding(Padding {
+                top: 8.0,
+                bottom: 8.0,
+                ..Padding::ZERO
+            }),
+        );
     } else {
         content = content.push(text!("{}", full.description()));
     }
 
-    let mut meta = column![].spacing(4);
+    let mut meta = column![].spacing(8);
     if let Some(seller) = offer.seller.as_ref().filter(|s| !s.name.is_empty()) {
         meta = meta.push(meta_row("Seller", &seller.name));
     }
@@ -273,9 +349,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     // Offer-level info above is always shown; the rest needs `Full` details.
     let GameDetails::Full(details) = &full.details else {
         content = content.push(text!("No further information available").size(14));
-        return container(scrollable(content).height(Length::Fill).width(Length::Fill))
-            .padding(16)
-            .into();
+        return detail_scrollable(content);
     };
 
     if let Some(website) = details.game_website.as_deref().filter(|s| !s.is_empty()) {
@@ -336,9 +410,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         content = content.push(requirements("macOS", reqs));
     }
 
-    container(scrollable(content).height(Length::Fill).width(Length::Fill))
-        .padding(16)
-        .into()
+    detail_scrollable(content)
 }
 
 #[cfg(test)]

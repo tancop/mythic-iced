@@ -126,6 +126,10 @@ pub enum Message {
         width: f32,
         height: f32,
     },
+    DetailViewport {
+        width: f32,
+        height: f32,
+    },
     ChunkDecoded {
         decoded: Vec<images::DecodedCard>,
         failed: Vec<String>,
@@ -160,6 +164,11 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             width,
             height,
         } => library::handle_scrolled(state, offset_y, width, height),
+        Message::DetailViewport { width, height } => {
+            state.viewport_width = width;
+            state.viewport_height = height;
+            Task::none()
+        }
         Message::ImageDownloaded(id, bytes) => images::handle_downloaded(state, id, bytes),
         Message::ChunkDecoded { decoded, failed } => {
             images::handle_chunk_decoded(state, decoded, failed)
