@@ -2,7 +2,7 @@ use iced::{
     Color, Element, Length, Padding,
     widget::{column, container, image, markdown, rich_text, row, scrollable, text},
 };
-use iced_widget::canvas;
+use iced_widget::{canvas, space};
 
 use crate::{
     Message, State,
@@ -359,19 +359,24 @@ pub fn view(state: &State) -> Element<'_, Message> {
         // Only the parsed items are cached in `State::detail_bodies`; the
         // layout (spacing, width, viewer style) is rebuilt every view so it
         // stays responsive to window size.
-        content = content.push(
+        content = content.push(row![
             container(markdown::view_with(
                 description,
                 markdown_settings(),
                 &DetailViewer,
             ))
-            .width(Length::Fill)
+            .width(if state.viewport_width < (800.0 * 0.9) {
+                Length::FillPortion(9)
+            } else {
+                Length::Fixed(800.0)
+            })
             .padding(Padding {
                 top: 8.0,
                 bottom: 8.0,
                 ..Padding::ZERO
             }),
-        );
+            space().width(Length::FillPortion(1)),
+        ]);
     } else {
         content = content.push(text!("{}", full.description()));
     }
