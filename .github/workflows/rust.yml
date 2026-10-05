@@ -29,7 +29,8 @@ jobs:
     - name: Pack executable
       uses: crazy-max/ghaction-upx@v4.0.0
       with:
-        file: target/release/mythic.exe
+        files: |
+          target/release/mythic.exe
     - name: Upload binary
       uses: actions/upload-artifact@v7.0.1
       with:
