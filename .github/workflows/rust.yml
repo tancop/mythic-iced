@@ -26,6 +26,10 @@ jobs:
         add-rust-environment-hash-key: true
     - name: Build release
       run: cargo build --locked --release --verbose
+    - name: Pack executable
+      uses: crazy-max/ghaction-upx@v4.0.0
+      with:
+        file: target/release/mythic.exe
     - name: Upload binary
       uses: actions/upload-artifact@v7.0.1
       with:
