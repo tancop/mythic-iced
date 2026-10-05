@@ -1,5 +1,5 @@
 use iced::{
-    Color, Element, Length, Padding,
+    Color, Element, Length, Padding, Pixels,
     widget::{column, container, image, markdown, rich_text, row, scrollable, text},
 };
 use iced_widget::{canvas, space};
@@ -11,7 +11,10 @@ use crate::{
     ui::{
         TextWidgetExt,
         library::GRID_CONFIG,
-        theme::{INFO, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG, OPENCRITIC_WEAK},
+        theme::{
+            BRAND_COLOR, INFO, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
+            OPENCRITIC_WEAK,
+        },
         widgets::progress_circle::ProgressCircle,
     },
 };
@@ -328,10 +331,18 @@ pub fn view(state: &State) -> Element<'_, Message> {
         let recommend = column![
             canvas(ProgressCircle {
                 progress: critic.recommend_percentage as f32 / 100.0,
-                color: INFO,
+                color: if critic.recommend_percentage == 100 {
+                    BRAND_COLOR
+                } else {
+                    INFO
+                },
                 text: format!("{}%", critic.recommend_percentage),
                 font: &crate::BOLD_FONT,
-                text_size: crate::HEADING_TEXT_SIZE.into(),
+                text_size: if critic.recommend_percentage == 100 {
+                    crate::DEFAULT_TEXT_SIZE.into()
+                } else {
+                    crate::HEADING_TEXT_SIZE.into()
+                },
             })
             .height(60.0)
             .width(60.0),
