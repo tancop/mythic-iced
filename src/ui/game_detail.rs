@@ -12,7 +12,7 @@ use crate::{
         TextWidgetExt,
         library::GRID_CONFIG,
         theme::{
-            BRAND_COLOR, INFO, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
+            INFO, MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
             OPENCRITIC_WEAK,
         },
         widgets::progress_circle::ProgressCircle,
@@ -332,7 +332,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             canvas(ProgressCircle {
                 progress: critic.recommend_percentage as f32 / 100.0,
                 color: if critic.recommend_percentage == 100 {
-                    BRAND_COLOR
+                    MYTHIC_GOLD
                 } else {
                     INFO
                 },

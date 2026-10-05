@@ -14,7 +14,7 @@ use crate::{
     ui::{
         TextWidgetExt,
         icons::{UP_DOWN_ARROW, X_MARK, icon_button},
-        theme::BRAND_COLOR,
+        theme::MYTHIC_GOLD,
         virtual_grid::{self, GridConfig, GridViewport},
     },
 };
@@ -84,7 +84,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .push(icon_button(
             UP_DOWN_ARROW,
             if state.sort_reverse {
-                BRAND_COLOR
+                MYTHIC_GOLD
             } else {
                 Color::WHITE
             },

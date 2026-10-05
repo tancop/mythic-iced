@@ -25,7 +25,7 @@ pub const DANGER: Color = hsl(6.0, 0.9, 0.5);
 pub const INFO: Color = hsl(210.0, 1.0, 0.5);
 
 /// Mythic rarity color taken from Fortnite wiki
-pub const BRAND_COLOR: Color = Color::from_rgb8(0xed, 0xbe, 0x51);
+pub const MYTHIC_GOLD: Color = Color::from_rgb8(0xed, 0xbe, 0x51);
 
 // OpenCritic color palette
 
