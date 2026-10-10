@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use iced::{Element, Font, Settings, Size, Task, Theme, window};
@@ -100,6 +100,9 @@ pub struct State {
     // Acquisition dates by catalog id, for purchase-date sorting
     #[default(HashMap::new())]
     pub purchase_dates: HashMap<String, epic::UtcDateTime>,
+    // Critic fetches waiting for a free slot; only a few run at once so
+    // OpenCritic doesn't start refusing our connections.
+    pub critic_queue: VecDeque<library::CriticJob>,
 
     pub focused_game_idx: Option<usize>,
     // Full store info by namespace (sandbox id), fetched on demand.
@@ -153,6 +156,12 @@ pub enum Message {
         id: String,
         score: Option<epic::CriticScore>,
     },
+    CriticRetry {
+        product_id: String,
+        product_name: String,
+        id: String,
+        attempts: u32,
+    },
     Navigate(Page),
 }
 
@@ -188,6 +197,12 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::GameDetailsFailed => library::handle_details_failed(state),
         Message::CriticLoaded { id, score } => library::handle_critic_loaded(state, id, score),
+        Message::CriticRetry {
+            product_id,
+            product_name,
+            id,
+            attempts,
+        } => library::handle_critic_retry(state, product_id, product_name, id, attempts),
         Message::Navigate(page) => {
             state.page = page;
             // The grid scrollable is recreated at the top when its view

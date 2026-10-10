@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 pub use auth::{authenticate, get_auth_url, refresh_token};
 pub use library::get_library_catalog;
-pub use reviews::get_critic_reviews;
+pub use reviews::{CriticError, get_critic_reviews};
 pub use store::get_game_details;
 
 use const_format::formatcp;

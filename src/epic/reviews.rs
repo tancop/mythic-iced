@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use anyhow::{Context, bail};
 use isahc::{AsyncReadResponseExt, Request};
 use serde::Deserialize;
 
@@ -84,15 +83,97 @@ struct DetailsResponse {
     url: String,
 }
 
-impl From<DetailsResponse> for CriticScore {
-    fn from(value: DetailsResponse) -> Self {
-        Self {
-            average: value.top_critic_score as i32,
-            rating: CriticRating::from_str(&value.tier).unwrap(),
-            recommend_percentage: value.percent_recommended as i32,
-            url: value.url,
+impl DetailsResponse {
+    fn into_score(self) -> anyhow::Result<CriticScore> {
+        Ok(CriticScore {
+            average: self.top_critic_score as i32,
+            rating: CriticRating::from_str(&self.tier)
+                .map_err(|_| anyhow::anyhow!("game has no rating, probably too few top critics"))?,
+            recommend_percentage: self.percent_recommended as i32,
+            url: self.url,
+        })
+    }
+}
+
+/// Error from [`get_critic_reviews`]. `Transient` means the request never
+/// got a usable answer because of throttling or a dropped connection, so
+/// the caller should requeue the game and try again later. `Fatal` means
+/// retrying is pointless (unknown game, bad response).
+#[derive(Debug)]
+pub enum CriticError {
+    Transient(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+impl std::fmt::Display for CriticError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Transient(e) | Self::Fatal(e) => write!(f, "{e:#}"),
         }
     }
+}
+
+/// Connection-level failures that say nothing about the game itself: the
+/// request died before (or during) the transfer, typically because the host
+/// stopped accepting our burst of connections. Worth retrying later.
+fn is_transient_send_error(e: &anyhow::Error) -> bool {
+    matches!(
+        e.downcast_ref::<isahc::Error>().map(isahc::Error::kind),
+        Some(
+            isahc::error::ErrorKind::ConnectionFailed
+                | isahc::error::ErrorKind::Timeout
+                | isahc::error::ErrorKind::Unknown
+                | isahc::error::ErrorKind::Io
+        )
+    )
+}
+
+async fn send_oc(
+    client: &isahc::HttpClient,
+    req: isahc::Request<()>,
+    label: &str,
+    product_name: &str,
+) -> Result<isahc::Response<isahc::AsyncBody>, CriticError> {
+    client.send_async(req).await.map_err(|e| {
+        let e = anyhow::Error::new(e).context(format!("oc {label} for '{product_name}'"));
+        if is_transient_send_error(&e) {
+            CriticError::Transient(e)
+        } else {
+            CriticError::Fatal(e)
+        }
+    })
+}
+
+/// Read the full body, then enforce the status. Throttling (429) and
+/// server errors are transient; anything else non-success is fatal. Both
+/// log status + a body snippet so throttling shows up as itself instead
+/// of a confusing serde error downstream.
+async fn read_oc_body(
+    label: &str,
+    product_name: &str,
+    mut res: isahc::Response<isahc::AsyncBody>,
+) -> Result<Vec<u8>, CriticError> {
+    let status = res.status();
+    let bytes = res.bytes().await.map_err(|e| {
+        let e = anyhow::Error::new(e).context(format!("oc {label} body for '{product_name}'"));
+        if is_transient_send_error(&e) {
+            CriticError::Transient(e)
+        } else {
+            CriticError::Fatal(e)
+        }
+    })?;
+    if status.as_u16() == 429 || status.is_server_error() {
+        return Err(CriticError::Transient(anyhow::anyhow!(
+            "oc {label} for '{product_name}' throttled: HTTP {status}"
+        )));
+    }
+    if !status.is_success() {
+        let snippet: String = String::from_utf8_lossy(&bytes).chars().take(300).collect();
+        return Err(CriticError::Fatal(anyhow::anyhow!(
+            "oc {label} for '{product_name}' returned HTTP {status}: {snippet}"
+        )));
+    }
+    Ok(bytes)
 }
 
 /// Fetch critic scores for `productId` using OpenCritic's API. This endpoint
@@ -101,7 +182,7 @@ impl From<DetailsResponse> for CriticScore {
 async fn get_oc_reviews(
     client: &isahc::HttpClient,
     product_name: &str,
-) -> anyhow::Result<CriticScore> {
+) -> Result<Option<CriticScore>, CriticError> {
     let search_url = format!(
         "https://api.opencritic.com/api/meta/search?criteria={}",
         urlencoding::encode(product_name)
@@ -111,35 +192,37 @@ async fn get_oc_reviews(
         .body(())
         .unwrap();
 
-    let res = client
-        .send_async(req)
-        .await
-        .context("oc search")?
-        .bytes()
-        .await?;
-    let items = serde_json::from_slice::<SearchResponse>(&res)?;
+    let res = send_oc(client, req, "search", product_name).await?;
+    let body = read_oc_body("search", product_name, res).await?;
+    let items: SearchResponse = serde_json::from_slice(&body).map_err(|e| {
+        CriticError::Fatal(anyhow::Error::new(e).context(format!("oc search for '{product_name}'")))
+    })?;
     let Some(item) = items.first() else {
-        bail!("Search for '{}' returned no items", product_name);
+        log::debug!("OC search for '{product_name}' returned no items");
+        return Ok(None);
     };
 
     if item.dist > 0.0 {
-        bail!("No match found for name '{}'", product_name);
+        log::debug!("No match found for name '{product_name}'");
+        return Ok(None);
     }
 
     let detail_url = format!("https://api.opencritic.com/api/game/{}", item.id);
+    log::debug!("fetch details for {product_name} from {detail_url}");
     let req = Request::get(&detail_url)
         .bearer_auth(OPENCRITIC_CODE)
         .body(())
         .unwrap();
 
-    let res = client
-        .send_async(req)
-        .await
-        .context("oc details")?
-        .bytes()
-        .await?;
+    let res = send_oc(client, req, "details", product_name).await?;
+    let body = read_oc_body("details", product_name, res).await?;
+    let details: DetailsResponse = serde_json::from_slice(&body).map_err(|e| {
+        CriticError::Fatal(
+            anyhow::Error::new(e).context(format!("oc details for '{product_name}'")),
+        )
+    })?;
 
-    Ok(serde_json::from_slice::<DetailsResponse>(&res)?.into())
+    Ok(Some(details.into_score().map_err(CriticError::Fatal)?))
 }
 
 /// Fetch OpenCritic scores for one product using the Epic Games API.
@@ -174,22 +257,22 @@ async fn get_epic_reviews(
 }
 
 /// Fetch OpenCritic scores for one product (`productId` from the library
-/// record). No authentication needed. Returns `None` when the product has
-/// no critic data instead of failing.
+/// record), trying Epic first and OpenCritic's own API as fallback.
+/// Returns `None` when neither has critic data. Errors are split into
+/// transient (throttled / connection dropped: requeue and retry later)
+/// and fatal (unknown game, bad response: give up).
 pub async fn get_critic_reviews(
     client: &isahc::HttpClient,
     product_id: &str,
     product_name: &str,
-) -> anyhow::Result<Option<CriticScore>> {
+) -> Result<Option<CriticScore>, CriticError> {
+    log::debug!("Loading critic reviews for {product_id} ({product_name})...");
     match get_epic_reviews(client, product_id).await {
         Ok(Some(score)) => Ok(Some(score)),
-        Ok(None) => get_oc_reviews(client, product_name).await.map(|r| Some(r)),
+        Ok(None) => get_oc_reviews(client, product_name).await,
         Err(e) => {
-            log::debug!(
-                "Failed to load critic score from Epic, falling back to OC: {}",
-                e
-            );
-            get_oc_reviews(client, product_name).await.map(|r| Some(r))
+            log::debug!("Failed to load critic score from Epic, falling back to OC: {e:#}",);
+            get_oc_reviews(client, product_name).await
         }
     }
 }

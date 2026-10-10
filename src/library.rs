@@ -145,34 +145,88 @@ pub fn handle_details_failed(state: &mut State) -> Task<Message> {
     Task::none()
 }
 
-// One unauthenticated OpenCritic request per library item that has a
-// `productId`, run in parallel via `Task::batch`.
-fn fetch_critics(state: &State) -> Task<Message> {
+// One critic fetch: Epic first, OpenCritic search+details as fallback.
+// `attempts` counts tries so far; transient failures requeue the job.
+pub struct CriticJob {
+    pub product_id: String,
+    pub product_name: String,
+    pub id: String,
+    pub attempts: u32,
+}
+
+// How many critic fetches may be in flight at once. OpenCritic starts
+// refusing connections when the whole library hits it at the same time,
+// so this stays small; each completion pulls the next job off the queue.
+const CRITIC_PARALLELISM: usize = 8;
+// Total tries per game (initial attempt + requeues) before giving up.
+const CRITIC_MAX_ATTEMPTS: u32 = 3;
+
+// Queue every library item that has a `productId`, then start the first
+// few; completions pull the rest off the queue one by one.
+fn fetch_critics(state: &mut State) -> Task<Message> {
     let Some(items) = &state.catalog_items else {
         return Task::none();
     };
-    let client = state.http_client.clone();
-
-    let tasks = items
+    state.critic_queue = items
         .iter()
         .filter_map(|item| {
-            let product_id = item.product_id.clone().filter(|id| !id.is_empty())?;
-            let product_name = item.title.clone();
-            let id = item.id.clone();
-            let client = client.clone();
-            Some(Task::future(async move {
-                match epic::get_critic_reviews(&client, &product_id, &product_name).await {
-                    Ok(score) => Message::CriticLoaded { id, score },
-                    Err(e) => {
-                        log::debug!("critic fetch failed for {product_id}: {e:#}");
-                        Message::CriticLoaded { id, score: None }
-                    }
-                }
-            }))
+            Some(CriticJob {
+                product_id: item.product_id.clone().filter(|id| !id.is_empty())?,
+                product_name: item.title.clone(),
+                id: item.id.clone(),
+                attempts: 0,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect();
+    let take = CRITIC_PARALLELISM.min(state.critic_queue.len());
+    let initial: Vec<CriticJob> = state.critic_queue.drain(..take).collect();
+    let client = state.http_client.clone();
+    Task::batch(
+        initial
+            .into_iter()
+            .map(|job| spawn_critic_task(&client, job)),
+    )
+}
 
-    Task::batch(tasks)
+fn spawn_critic_task(client: &isahc::HttpClient, job: CriticJob) -> Task<Message> {
+    let client = client.clone();
+    let CriticJob {
+        product_id,
+        product_name,
+        id,
+        attempts,
+    } = job;
+    Task::future(async move {
+        match epic::get_critic_reviews(&client, &product_id, &product_name).await {
+            Ok(score) => Message::CriticLoaded { id, score },
+            Err(epic::CriticError::Transient(e)) if attempts + 1 < CRITIC_MAX_ATTEMPTS => {
+                log::debug!(
+                    "critic fetch throttled for {product_id} (attempt {}), requeueing: {e:#}",
+                    attempts + 1
+                );
+                Message::CriticRetry {
+                    product_id,
+                    product_name,
+                    id,
+                    attempts: attempts + 1,
+                }
+            }
+            Err(e) => {
+                log::debug!("critic fetch failed for {product_id}: {e:#}");
+                Message::CriticLoaded { id, score: None }
+            }
+        }
+    })
+}
+
+/// Pull the next queued job now that a slot freed up; `Task::none()` once
+/// the queue is drained.
+fn pop_critic_task(state: &mut State) -> Task<Message> {
+    let client = state.http_client.clone();
+    match state.critic_queue.pop_front() {
+        Some(job) => spawn_critic_task(&client, job),
+        None => Task::none(),
+    }
 }
 
 pub fn handle_critic_loaded(
@@ -188,7 +242,26 @@ pub fn handle_critic_loaded(
     // Scores stream in after the library loads; keep the display order
     // current so a critic sort settles as results arrive.
     search::rebuild_order(state);
-    Task::none()
+    pop_critic_task(state)
+}
+
+// A throttled fetch gets another chance: push it to the back so other
+// games go first (natural spacing without needing a timer), then fill
+// the freed slot with the next job.
+pub fn handle_critic_retry(
+    state: &mut State,
+    product_id: String,
+    product_name: String,
+    id: String,
+    attempts: u32,
+) -> Task<Message> {
+    state.critic_queue.push_back(CriticJob {
+        product_id,
+        product_name,
+        id,
+        attempts,
+    });
+    pop_critic_task(state)
 }
 
 // Drop off-screen decodes and decode the current window. Used after scrolls
