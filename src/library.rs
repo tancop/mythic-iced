@@ -169,6 +169,9 @@ fn fetch_critics(state: &mut State) -> Task<Message> {
     };
     state.critic_queue = items
         .iter()
+        // DLC never has its own OpenCritic score; skipping it here keeps
+        // the queue short instead of burning searches on it.
+        .filter(|item| !item.is_dlc())
         .filter_map(|item| {
             Some(CriticJob {
                 product_id: item.product_id.clone().filter(|id| !id.is_empty())?,

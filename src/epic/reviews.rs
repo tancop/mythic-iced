@@ -176,27 +176,98 @@ async fn read_oc_body(
     Ok(bytes)
 }
 
-/// Fetch critic scores for `productId` using OpenCritic's API. This endpoint
-/// returns larger records than Epic (15 kB) and requires an extra network
-/// call, so we use it as a backup.
-async fn get_oc_reviews(
-    client: &isahc::HttpClient,
-    product_name: &str,
-) -> Result<Option<CriticScore>, CriticError> {
+/// Run one OpenCritic meta search for `name`, enforcing the status.
+/// Parse errors are fatal.
+async fn search_oc(client: &isahc::HttpClient, name: &str) -> Result<SearchResponse, CriticError> {
     let search_url = format!(
         "https://api.opencritic.com/api/meta/search?criteria={}",
-        urlencoding::encode(product_name)
+        urlencoding::encode(name)
     );
     let req = Request::get(&search_url)
         .bearer_auth(OPENCRITIC_CODE)
         .body(())
         .unwrap();
 
-    let res = send_oc(client, req, "search", product_name).await?;
-    let body = read_oc_body("search", product_name, res).await?;
-    let items: SearchResponse = serde_json::from_slice(&body).map_err(|e| {
-        CriticError::Fatal(anyhow::Error::new(e).context(format!("oc search for '{product_name}'")))
-    })?;
+    let res = send_oc(client, req, "search", name).await?;
+    let body = read_oc_body("search", name, res).await?;
+    serde_json::from_slice(&body).map_err(|e| {
+        CriticError::Fatal(anyhow::Error::new(e).context(format!("oc search for '{name}'")))
+    })
+}
+
+/// Strip a trailing "<word> edition" or "game of the year edition" from a
+/// store title, plus any leftover trailing `-` or `:`. Returns `None` when
+/// there is no such suffix or nothing would remain.
+///
+/// Only used as a second chance after the full title found no exact match:
+/// stripping up front would misattribute real "Edition" games (e.g.
+/// "Mafia Definitive Edition" is a remake, not "Mafia" with extras).
+fn strip_edition_suffix(name: &str) -> Option<String> {
+    let words: Vec<&str> = name.split_whitespace().collect();
+    let strip = if words.len() > 5
+        && words[words.len() - 5..]
+            .iter()
+            .map(|w| w.to_lowercase())
+            .collect::<Vec<_>>()
+            == ["game", "of", "the", "year", "edition"]
+    {
+        5
+    } else if words.len() > 2 && words[words.len() - 1].eq_ignore_ascii_case("edition") {
+        2
+    } else {
+        return None;
+    };
+    let stripped: String = words[..words.len() - strip].join(" ");
+    let stripped = stripped
+        .trim_end()
+        .trim_end_matches(['-', ':'])
+        .trim_end()
+        .to_string();
+    (!stripped.is_empty()).then_some(stripped)
+}
+/// Fetch one game's detail record by OpenCritic id. Parse errors are fatal.
+async fn fetch_oc_details(
+    client: &isahc::HttpClient,
+    game_id: u32,
+    name: &str,
+) -> Result<DetailsResponse, CriticError> {
+    let detail_url = format!("https://api.opencritic.com/api/game/{game_id}");
+    log::debug!("fetch details for {name} from {detail_url}");
+    let req = Request::get(&detail_url)
+        .bearer_auth(OPENCRITIC_CODE)
+        .body(())
+        .unwrap();
+
+    let res = send_oc(client, req, "details", name).await?;
+    let body = read_oc_body("details", name, res).await?;
+    serde_json::from_slice(&body).map_err(|e| {
+        CriticError::Fatal(anyhow::Error::new(e).context(format!("oc details for '{name}'")))
+    })
+}
+
+/// Fetch critic scores for `product_name` using OpenCritic's API. This
+/// endpoint returns larger records than Epic (15 kB) and requires an extra
+/// network call, so we use it as a backup.
+async fn get_oc_reviews(
+    client: &isahc::HttpClient,
+    product_name: &str,
+) -> Result<Option<CriticScore>, CriticError> {
+    // Computed up front (no network): the only second chance we get, used
+    // when the full title finds no exact match or its entry has no score.
+    let stripped = strip_edition_suffix(product_name);
+
+    let mut items = search_oc(client, product_name).await?;
+    let mut searched_stripped = false;
+    if items.first().is_some_and(|item| item.dist > 0.0)
+        && let Some(stripped) = &stripped
+    {
+        // Later store editions often carry a suffix OpenCritic doesn't
+        // know ("Control Ultimate Edition" vs "Control"). The full title
+        // was already tried first, so try once with it stripped.
+        log::debug!("No exact OC match for '{product_name}', retrying as '{stripped}'");
+        items = search_oc(client, stripped).await?;
+        searched_stripped = true;
+    }
     let Some(item) = items.first() else {
         log::debug!("OC search for '{product_name}' returned no items");
         return Ok(None);
@@ -207,22 +278,24 @@ async fn get_oc_reviews(
         return Ok(None);
     }
 
-    let detail_url = format!("https://api.opencritic.com/api/game/{}", item.id);
-    log::debug!("fetch details for {product_name} from {detail_url}");
-    let req = Request::get(&detail_url)
-        .bearer_auth(OPENCRITIC_CODE)
-        .body(())
-        .unwrap();
-
-    let res = send_oc(client, req, "details", product_name).await?;
-    let body = read_oc_body("details", product_name, res).await?;
-    let details: DetailsResponse = serde_json::from_slice(&body).map_err(|e| {
-        CriticError::Fatal(
-            anyhow::Error::new(e).context(format!("oc details for '{product_name}'")),
-        )
-    })?;
-
-    Ok(Some(details.into_score().map_err(CriticError::Fatal)?))
+    let details = fetch_oc_details(client, item.id, product_name).await?;
+    match details.into_score() {
+        Ok(score) => Ok(Some(score)),
+        Err(e) => {
+            // OpenCritic knows this edition entry but hasn't scored it
+            // (e.g. one review, no average): fall back to the base game,
+            // unless the stripped name is what already got us here.
+            if !searched_stripped && let Some(stripped) = &stripped {
+                log::debug!("OC has no score for '{product_name}', retrying as '{stripped}'");
+                let items = search_oc(client, stripped).await?;
+                if let Some(item) = items.first().filter(|item| item.dist == 0.0) {
+                    let details = fetch_oc_details(client, item.id, stripped).await?;
+                    return Ok(Some(details.into_score().map_err(CriticError::Fatal)?));
+                }
+            }
+            Err(CriticError::Fatal(e))
+        }
+    }
 }
 
 /// Fetch OpenCritic scores for one product using the Epic Games API.
@@ -310,6 +383,44 @@ mod tests {
                     .is_none(),
                 "body should yield None: {body}"
             );
+        }
+    }
+
+    #[test]
+    fn edition_suffix_strips_for_second_search() {
+        for (name, stripped) in [
+            ("Control Ultimate Edition", "Control"),
+            (
+                "The Witcher 3: Wild Hunt - Complete Edition",
+                "The Witcher 3: Wild Hunt",
+            ),
+            (
+                "Batman: Arkham Knight: Premium Edition",
+                "Batman: Arkham Knight",
+            ),
+            ("Elden Ring: Game of the Year Edition", "Elden Ring"),
+            ("Hades GOTY Edition", "Hades"),
+        ] {
+            assert_eq!(
+                strip_edition_suffix(name).as_deref(),
+                Some(stripped),
+                "should strip: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn edition_suffix_leaves_real_titles_alone() {
+        // No edition suffix, or nothing would remain: no second search.
+        for name in [
+            "Control",
+            "Mafia", // bare base game, not an edition lookup
+            "Edition",
+            "Foo Edition",
+            "Star Wars Jedi: Survivor",
+            "Digital Deluxe Upgrade",
+        ] {
+            assert_eq!(strip_edition_suffix(name), None, "should not strip: {name}");
         }
     }
 }
