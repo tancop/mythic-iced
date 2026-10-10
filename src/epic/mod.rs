@@ -4,6 +4,8 @@ mod manifest;
 mod reviews;
 mod store;
 
+use std::str::FromStr;
+
 pub use auth::{authenticate, get_auth_url, refresh_token};
 pub use library::get_library_catalog;
 pub use reviews::get_critic_reviews;
@@ -321,6 +323,20 @@ pub enum CriticRating {
     Fair,
     Strong,
     Mighty,
+}
+
+impl FromStr for CriticRating {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Weak" => Ok(Self::Weak),
+            "Fair" => Ok(Self::Fair),
+            "Strong" => Ok(Self::Strong),
+            "Mighty" => Ok(Self::Mighty),
+            _ => Err(()),
+        }
+    }
 }
 
 /// OpenCritic score kept on each library item: average score, recommend

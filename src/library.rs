@@ -157,10 +157,11 @@ fn fetch_critics(state: &State) -> Task<Message> {
         .iter()
         .filter_map(|item| {
             let product_id = item.product_id.clone().filter(|id| !id.is_empty())?;
+            let product_name = item.title.clone();
             let id = item.id.clone();
             let client = client.clone();
             Some(Task::future(async move {
-                match epic::get_critic_reviews(&client, &product_id).await {
+                match epic::get_critic_reviews(&client, &product_id, &product_name).await {
                     Ok(score) => Message::CriticLoaded { id, score },
                     Err(e) => {
                         log::debug!("critic fetch failed for {product_id}: {e:#}");
