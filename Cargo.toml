@@ -25,6 +25,7 @@ url = "2"
 rkyv = { version = "0.8", default-features = false, features = ["std", "alloc", "hashbrown-0_14"] }
 strsim = "0.11.1"
 const_base = "0.2.0"
+urlencoding = "2.1.3"
 
 [build-dependencies]
 winres = "0.1"

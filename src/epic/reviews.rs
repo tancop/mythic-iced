@@ -76,6 +76,7 @@ struct SearchItem {
 type SearchResponse = Vec<SearchItem>;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DetailsResponse {
     percent_recommended: f32,
     top_critic_score: f32,
@@ -101,7 +102,10 @@ async fn get_oc_reviews(
     client: &isahc::HttpClient,
     product_name: &str,
 ) -> anyhow::Result<CriticScore> {
-    let search_url = format!("https://api.opencritic.com/api/meta/search?criteria={product_name}");
+    let search_url = format!(
+        "https://api.opencritic.com/api/meta/search?criteria={}",
+        urlencoding::encode(product_name)
+    );
     let req = Request::get(&search_url)
         .bearer_auth(OPENCRITIC_CODE)
         .body(())
