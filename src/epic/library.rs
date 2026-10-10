@@ -356,6 +356,7 @@ mod tests {
             release_info: Vec::new(),
             product_id: None,
             critic: None,
+            user_rating: None,
             search_key: crate::search::build_search_key(title),
         }
     }
@@ -509,5 +510,6 @@ mod tests {
         assert_eq!(catalog.items.len(), 1);
         assert_eq!(catalog.items[0].product_id.as_deref(), Some("prod-123"));
         assert_eq!(catalog.items[0].critic, None);
+        assert_eq!(catalog.items[0].user_rating, None);
     }
 }

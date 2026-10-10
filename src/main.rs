@@ -103,6 +103,9 @@ pub struct State {
     // Critic fetches waiting for a free slot; only a few run at once so
     // OpenCritic doesn't start refusing our connections.
     pub critic_queue: VecDeque<library::CriticJob>,
+    // Epic user-rating fetches waiting for a free slot; same pattern as
+    // the critic queue but keyed by namespace (sandbox id).
+    pub rating_queue: VecDeque<library::RatingJob>,
 
     pub focused_game_idx: Option<usize>,
     // Full store info by namespace (sandbox id), fetched on demand.
@@ -156,6 +159,15 @@ pub enum Message {
         id: String,
         score: Option<epic::CriticScore>,
     },
+    UserRatingLoaded {
+        id: String,
+        rating: Option<f32>,
+    },
+    UserRatingRetry {
+        sandbox_id: String,
+        id: String,
+        attempts: u32,
+    },
     CriticRetry {
         product_id: String,
         product_name: String,
@@ -197,6 +209,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::GameDetailsFailed => library::handle_details_failed(state),
         Message::CriticLoaded { id, score } => library::handle_critic_loaded(state, id, score),
+        Message::UserRatingLoaded { id, rating } => {
+            library::handle_rating_loaded(state, id, rating)
+        }
+        Message::UserRatingRetry {
+            sandbox_id,
+            id,
+            attempts,
+        } => library::handle_rating_retry(state, sandbox_id, id, attempts),
         Message::CriticRetry {
             product_id,
             product_name,

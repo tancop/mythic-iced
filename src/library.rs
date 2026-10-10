@@ -28,7 +28,8 @@ pub fn handle_loaded(
     let download_tasks = download_missing(state);
     let decode_task = images::decode_visible(state);
     let critic_tasks = fetch_critics(state);
-    Task::batch([download_tasks, decode_task, critic_tasks])
+    let rating_tasks = fetch_ratings(state);
+    Task::batch([download_tasks, decode_task, critic_tasks, rating_tasks])
 }
 
 // Spawn one thumbnail download per item missing from the disk cache.
@@ -265,6 +266,128 @@ pub fn handle_critic_retry(
         attempts,
     });
     pop_critic_task(state)
+}
+
+// One user-rating fetch: Epic store GraphQL `getProductStars` by sandbox
+// id (the catalog `namespace`). `attempts` counts tries so far; failed
+// fetches requeue so throttling doesn't leave games unrated.
+pub struct RatingJob {
+    pub sandbox_id: String,
+    pub id: String,
+    pub attempts: u32,
+}
+
+// Same shape as the critic queue: a few store GraphQL fetches in flight
+// at once, each completion pulling the next job off the queue.
+const RATING_PARALLELISM: usize = 8;
+// Total tries per game (initial attempt + requeues) before giving up.
+const RATING_MAX_ATTEMPTS: u32 = 3;
+
+// Queue every library item with a namespace, then start the first few;
+// completions pull the rest off the queue one by one. Needs the store
+// auth token, so no ratings are fetched when logged out.
+fn fetch_ratings(state: &mut State) -> Task<Message> {
+    let Some(items) = &state.catalog_items else {
+        return Task::none();
+    };
+    let Some(token) = state
+        .auth_data
+        .as_ref()
+        .map(|auth| auth.access_token.clone())
+    else {
+        return Task::none();
+    };
+    state.rating_queue = items
+        .iter()
+        .filter(|item| !item.namespace.is_empty())
+        .map(|item| RatingJob {
+            sandbox_id: item.namespace.clone(),
+            id: item.id.clone(),
+            attempts: 0,
+        })
+        .collect();
+    let take = RATING_PARALLELISM.min(state.rating_queue.len());
+    let initial: Vec<RatingJob> = state.rating_queue.drain(..take).collect();
+    Task::batch(
+        initial
+            .into_iter()
+            .map(|job| spawn_rating_task(&state.http_client, &token, job)),
+    )
+}
+
+fn spawn_rating_task(client: &isahc::HttpClient, token: &str, job: RatingJob) -> Task<Message> {
+    let client = client.clone();
+    let token = token.to_string();
+    let RatingJob {
+        sandbox_id,
+        id,
+        attempts,
+    } = job;
+    Task::future(async move {
+        match epic::get_product_stars(&client, &token, &sandbox_id).await {
+            Ok(rating) => Message::UserRatingLoaded { id, rating },
+            Err(e) if attempts + 1 < RATING_MAX_ATTEMPTS => {
+                log::debug!(
+                    "user rating fetch throttled for {sandbox_id} (attempt {}), requeueing: {e:#}",
+                    attempts + 1
+                );
+                Message::UserRatingRetry {
+                    sandbox_id,
+                    id,
+                    attempts: attempts + 1,
+                }
+            }
+            Err(e) => {
+                log::debug!("user rating fetch failed for {sandbox_id}: {e:#}");
+                Message::UserRatingLoaded { id, rating: None }
+            }
+        }
+    })
+}
+
+/// Pull the next queued rating job now that a slot freed up;
+/// `Task::none()` once the queue is drained.
+fn pop_rating_task(state: &mut State) -> Task<Message> {
+    let (client, token) = (
+        state.http_client.clone(),
+        state.auth_data.as_ref().map(|a| a.access_token.clone()),
+    );
+    let Some(token) = token else {
+        return Task::none();
+    };
+    match state.rating_queue.pop_front() {
+        Some(job) => spawn_rating_task(&client, &token, job),
+        None => Task::none(),
+    }
+}
+
+pub fn handle_rating_loaded(state: &mut State, id: String, rating: Option<f32>) -> Task<Message> {
+    if let Some(items) = &mut state.catalog_items
+        && let Some(item) = items.iter_mut().find(|item| item.id == id)
+    {
+        item.user_rating = rating;
+    }
+    // Ratings stream in after the library loads; keep the display order
+    // current so a user-rating sort settles as results arrive.
+    search::rebuild_order(state);
+    pop_rating_task(state)
+}
+
+// A throttled fetch gets another chance: push it to the back so other
+// games go first (natural spacing without needing a timer), then fill
+// the freed slot with the next job.
+pub fn handle_rating_retry(
+    state: &mut State,
+    sandbox_id: String,
+    id: String,
+    attempts: u32,
+) -> Task<Message> {
+    state.rating_queue.push_back(RatingJob {
+        sandbox_id,
+        id,
+        attempts,
+    });
+    pop_rating_task(state)
 }
 
 // Drop off-screen decodes and decode the current window. Used after scrolls

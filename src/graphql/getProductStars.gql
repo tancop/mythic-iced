@@ -1,0 +1,7 @@
+query getProductStars($sandboxId: String!, $locale: String = "en") {
+    RatingsPolls {
+        getProductResult(sandboxId: $sandboxId, locale: $locale) {
+            averageRating
+        }
+    }
+}

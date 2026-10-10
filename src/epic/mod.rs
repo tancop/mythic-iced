@@ -1,6 +1,7 @@
 mod auth;
 mod library;
 mod manifest;
+mod ratings;
 mod reviews;
 mod store;
 
@@ -8,6 +9,7 @@ use std::str::FromStr;
 
 pub use auth::{authenticate, get_auth_url, refresh_token};
 pub use library::get_library_catalog;
+pub use ratings::get_product_stars;
 pub use reviews::{CriticError, get_critic_reviews};
 pub use store::get_game_details;
 
@@ -452,6 +454,11 @@ pub struct CatalogItem {
     // OpenCritic score fetched after library load; None when unavailable.
     #[serde(skip, default)]
     pub critic: Option<CriticScore>,
+
+    // Epic user rating (stars out of 5, e.g. 4.67) fetched after library
+    // load; None when the product has no rating.
+    #[serde(skip, default)]
+    pub user_rating: Option<f32>,
 
     // Precomputed by the loading code via `search::build_search_key`:
     // lowercased title with noise words and punctuation stripped. Never
