@@ -1,5 +1,5 @@
 use iced::{
-    Alignment, Color, Element, Length, Padding, Theme,
+    Alignment, Border, Color, Element, Length, Padding, Theme, padding,
     widget::{
         column, container, image, mouse_area, pick_list, row, space, stack, text, text_input,
     },
@@ -8,13 +8,16 @@ use iced::{
 use iced::widget::container::Style;
 
 use crate::{
-    LIBRARY_TITLE_TEXT_SIZE, Message, State,
+    HEADING_TEXT_SIZE, LIBRARY_TITLE_TEXT_SIZE, Message, State,
+    epic::{CatalogItem, CriticRating},
     images::{self, PixelData},
-    search::{DLC_FILTERS, SortOption, effective_sort_key, sort_options},
+    search::{DLC_FILTERS, SortKey, SortOption, effective_sort_key, sort_options},
     ui::{
         TextWidgetExt,
         icons::{UP_DOWN_ARROW, X_MARK, icon_button},
-        theme::MYTHIC_GOLD,
+        theme::{
+            MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG, OPENCRITIC_WEAK,
+        },
         virtual_grid::{self, GridConfig, GridViewport},
     },
 };
@@ -117,7 +120,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         |position, card_w, card_h| {
             let index = state.order[position];
             let catalog = &items[index];
-            let card: Element<'_, Message> = if let Some(PixelData {
+            let base: Element<'_, Message> = if let Some(PixelData {
                 width,
                 height,
                 pixels,
@@ -143,6 +146,17 @@ pub fn view(state: &State) -> Element<'_, Message> {
             } else {
                 placeholder_card(card_w, card_h)
             };
+            let card: Element<'_, Message> = match score_badge(catalog, effective_sort_key(state)) {
+                Some((label, background)) => stack![
+                    base,
+                    container(badge(label, background))
+                        .align_right(Length::Fixed(card_w))
+                        .align_top(Length::Fixed(card_h))
+                        .padding(padding::right(5).top(5)),
+                ]
+                .into(),
+                None => base,
+            };
             mouse_area(card)
                 .on_press(Message::GameSelected(index))
                 .into()
@@ -167,6 +181,55 @@ fn placeholder_card(card_w: f32, card_h: f32) -> Element<'static, Message> {
         .center_y(Length::Fixed(card_h))
         .clip(true)
         .into()
+}
+
+fn opencritic_color(rating: CriticRating) -> Color {
+    match rating {
+        CriticRating::Weak => OPENCRITIC_WEAK,
+        CriticRating::Fair => OPENCRITIC_FAIR,
+        CriticRating::Strong => OPENCRITIC_STRONG,
+        CriticRating::Mighty => OPENCRITIC_MIGHTY,
+    }
+}
+
+/// Score text plus badge background for the active rating sort, if any.
+/// `Some(color)` is the critic badge color; `None` means the theme primary
+/// (user ratings). Returns `None` when the sort isn't a rating sort or the
+/// game has no score for it, so no badge is shown.
+fn score_badge(item: &CatalogItem, sort: SortKey) -> Option<(String, Option<Color>)> {
+    match sort {
+        SortKey::Critic => item.critic.as_ref().map(|critic| {
+            (
+                critic.average.to_string(),
+                Some(opencritic_color(critic.rating)),
+            )
+        }),
+        SortKey::UserRating => item
+            .user_rating
+            .map(|rating| (format!("{rating:.1}"), None)),
+        _ => None,
+    }
+}
+
+fn badge(label: String, background: Option<Color>) -> Element<'static, Message> {
+    container(
+        text!("{label}")
+            .bold()
+            .size(HEADING_TEXT_SIZE)
+            .color(Color::WHITE),
+    )
+    .padding(Padding {
+        top: 2.0,
+        right: 8.0,
+        bottom: 2.0,
+        left: 8.0,
+    })
+    .style(move |theme: &Theme| {
+        Style::default()
+            .background(background.unwrap_or(theme.palette().primary))
+            .border(Border::default().rounded(6.0))
+    })
+    .into()
 }
 
 #[cfg(test)]
