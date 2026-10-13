@@ -279,7 +279,7 @@ pub struct RatingJob {
 
 // Same shape as the critic queue: a few store GraphQL fetches in flight
 // at once, each completion pulling the next job off the queue.
-const RATING_PARALLELISM: usize = 8;
+const RATING_PARALLELISM: usize = 64;
 // Total tries per game (initial attempt + requeues) before giving up.
 const RATING_MAX_ATTEMPTS: u32 = 3;
 
