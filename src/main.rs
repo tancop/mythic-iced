@@ -34,7 +34,14 @@ pub const BOLD_FONT: Font = {
     font
 };
 
-pub const FA_SOLID: Font = Font::with_name("Font Awesome 7 Solid");
+pub const FA_SOLID: Font = {
+    // Must match the font's internal family name ("Font Awesome 7 Free",
+    // nameID 16 in the OTF) — the file name is not used for lookup.
+    // Weight 900 selects the Solid face (weight 400 would be Regular).
+    let mut font = Font::with_name("Font Awesome 7 Free");
+    font.weight = iced::font::Weight::Black;
+    font
+};
 
 pub const DEFAULT_TEXT_SIZE: u32 = 16;
 pub const LIBRARY_TITLE_TEXT_SIZE: u32 = 14;

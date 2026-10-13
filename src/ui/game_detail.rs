@@ -1,15 +1,18 @@
 use iced::{
-    Color, Element, Length, Padding, Pixels,
+    Border, Color, Element, Length, Padding, Theme,
+    alignment::Vertical,
+    padding,
     widget::{column, container, image, markdown, rich_text, row, scrollable, text},
 };
-use iced_widget::{canvas, space};
+use iced_widget::{canvas, container::Style, space};
 
 use crate::{
-    Message, State,
+    HEADING_TEXT_SIZE, Message, State,
     epic::{CriticRating, GameDetails, TechRequirement},
     images::PixelData,
     ui::{
         TextWidgetExt,
+        icons::{self, icon},
         library::GRID_CONFIG,
         theme::{
             INFO, MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
@@ -263,6 +266,24 @@ fn opencritic_color(rating: CriticRating) -> Color {
     }
 }
 
+fn rating_box(rating: f32) -> Element<'static, Message> {
+    container(
+        row![
+            icon(icons::STAR, 20),
+            text!("{rating:.2}").size(HEADING_TEXT_SIZE).bold()
+        ]
+        .align_y(Vertical::Center)
+        .spacing(5),
+    )
+    .padding(padding::horizontal(10).vertical(5))
+    .style(move |theme: &Theme| {
+        Style::default()
+            .background(theme.palette().primary)
+            .border(Border::default().rounded(6.0))
+    })
+    .into()
+}
+
 pub fn view(state: &State) -> Element<'_, Message> {
     let Some(items) = &state.catalog_items else {
         return centered("Loading...");
@@ -307,6 +328,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
     }
     if !offer.publisher_display_name.is_empty() {
         identity = identity.push(meta_row("Publisher", &offer.publisher_display_name));
+    }
+    if let Some(rating) = item.user_rating {
+        identity = identity.push(rating_box(rating));
     }
     if let Some(critic) = item.critic.as_ref() {
         let score = column![
