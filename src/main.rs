@@ -50,6 +50,11 @@ pub const LIBRARY_TITLE_TEXT_SIZE: u32 = 14;
 pub const HEADING_TEXT_SIZE: u32 = 18;
 
 fn main() {
+    unsafe {
+        std::env::set_var("WGPU_BACKEND", "opengl");
+        std::env::set_var("WGPU_POWER_PREF", "low");
+    }
+
     crate::logging::init();
 
     log::info!("Starting Mythic Launcher...");
