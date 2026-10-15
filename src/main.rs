@@ -16,6 +16,7 @@ mod images;
 mod library;
 mod logging;
 mod login;
+mod ratings_cache;
 mod search;
 mod ui;
 
@@ -82,6 +83,8 @@ pub struct State {
     pub catalog_items: Option<Vec<epic::CatalogItem>>,
     #[default(images::ImageLibrary::empty())]
     pub image_library: images::ImageLibrary,
+    #[default(ratings_cache::RatingsCache::empty())]
+    pub ratings_cache: ratings_cache::RatingsCache,
     // Set while the GraphQL library fetch is in flight; the grid shows
     // `Loading...` until it completes.
     pub inflight_fetches: usize,
@@ -170,6 +173,7 @@ pub enum Message {
         id: String,
         rating: Option<f32>,
     },
+    RatingsCacheSaved,
     UserRatingRetry {
         sandbox_id: String,
         id: String,
@@ -219,6 +223,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::UserRatingLoaded { id, rating } => {
             library::handle_rating_loaded(state, id, rating)
         }
+        Message::RatingsCacheSaved => library::handle_ratings_cache_saved(state),
         Message::UserRatingRetry {
             sandbox_id,
             id,
@@ -261,6 +266,7 @@ fn boot() -> (State, Task<Message>) {
     let mut state = State::default();
 
     state.image_library = images::ImageLibrary::load(&images::library_path());
+    state.ratings_cache = ratings_cache::RatingsCache::load(&ratings_cache::cache_path());
 
     if let Some(token) = login::load_refresh_token()
         && let Ok(auth_data) = login::refresh_blocking(&state.http_client, &token)

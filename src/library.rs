@@ -23,6 +23,11 @@ pub fn handle_loaded(
     state.focused_game_idx = None;
     state.details_error = false;
 
+    // Show cached scores instantly so rating sorts settle without waiting
+    // on the network; the queues below only fetch what the cache lacks
+    // (or everything, when the cache is stale).
+    apply_cached_ratings(state);
+
     search::rebuild_order(state);
 
     let download_tasks = download_missing(state);
@@ -78,6 +83,47 @@ fn download_missing(state: &State) -> Task<Message> {
         .collect::<Vec<_>>();
 
     Task::batch(tasks)
+}
+
+// Copy cached critic/user ratings onto freshly loaded items. Uncached
+// games (new arrivals, never-rated) keep `None` and are fetched below.
+fn apply_cached_ratings(state: &mut State) {
+    let Some(items) = &mut state.catalog_items else {
+        return;
+    };
+    for item in items.iter_mut() {
+        state.ratings_cache.apply(item);
+    }
+}
+
+// Queue a background persist of the ratings cache. At most one save runs
+// at a time; arrivals during a save only flag the cache, and the save
+// completion re-saves once if anything changed meanwhile.
+fn persist_ratings(state: &mut State) -> Task<Message> {
+    let Some(snapshot) = state.ratings_cache.snapshot() else {
+        return Task::none();
+    };
+    let path = crate::ratings_cache::cache_path();
+    Task::future(async move {
+        if let Err(e) = crate::ratings_cache::save_snapshot(&snapshot, &path) {
+            log::warn!("Failed to save ratings cache: {e:#}");
+        }
+        Message::RatingsCacheSaved
+    })
+}
+
+pub fn handle_ratings_cache_saved(state: &mut State) -> Task<Message> {
+    if let Some(snapshot) = state.ratings_cache.save_finished() {
+        let path = crate::ratings_cache::cache_path();
+        Task::future(async move {
+            if let Err(e) = crate::ratings_cache::save_snapshot(&snapshot, &path) {
+                log::warn!("Failed to save ratings cache: {e:#}");
+            }
+            Message::RatingsCacheSaved
+        })
+    } else {
+        Task::none()
+    }
 }
 
 pub fn handle_scrolled(state: &mut State, offset_y: f32, width: f32, height: f32) -> Task<Message> {
@@ -163,16 +209,20 @@ const CRITIC_PARALLELISM: usize = 8;
 const CRITIC_MAX_ATTEMPTS: u32 = 3;
 
 // Queue every library item that has a `productId`, then start the first
-// few; completions pull the rest off the queue one by one.
+// few; completions pull the rest off the queue one by one. Games already
+// in a fresh disk cache are skipped (their scores were applied at load),
+// but a stale cache refetches everything in the background.
 fn fetch_critics(state: &mut State) -> Task<Message> {
     let Some(items) = &state.catalog_items else {
         return Task::none();
     };
+    let stale = state.ratings_cache.is_stale();
     state.critic_queue = items
         .iter()
         // DLC never has its own OpenCritic score; skipping it here keeps
         // the queue short instead of burning searches on it.
         .filter(|item| !item.is_dlc())
+        .filter(|item| stale || !state.ratings_cache.has_critic(&item.id))
         .filter_map(|item| {
             Some(CriticJob {
                 product_id: item.product_id.clone().filter(|id| !id.is_empty())?,
@@ -238,6 +288,17 @@ pub fn handle_critic_loaded(
     id: String,
     score: Option<epic::CriticScore>,
 ) -> Task<Message> {
+    // Cache fresh scores for instant startup (unrated games stay out, so a
+    // rating earned later is picked up). Persistence runs coalesced in the
+    // background; a synchronous rewrite per arrival froze first loads.
+    let persist = if state
+        .ratings_cache
+        .update_critic(id.clone(), score.as_ref())
+    {
+        persist_ratings(state)
+    } else {
+        Task::none()
+    };
     if let Some(items) = &mut state.catalog_items
         && let Some(item) = items.iter_mut().find(|item| item.id == id)
     {
@@ -246,7 +307,7 @@ pub fn handle_critic_loaded(
     // Scores stream in after the library loads; keep the display order
     // current so a critic sort settles as results arrive.
     search::rebuild_order(state);
-    pop_critic_task(state)
+    Task::batch([persist, pop_critic_task(state)])
 }
 
 // A throttled fetch gets another chance: push it to the back so other
@@ -297,9 +358,13 @@ fn fetch_ratings(state: &mut State) -> Task<Message> {
     else {
         return Task::none();
     };
+    let stale = state.ratings_cache.is_stale();
     state.rating_queue = items
         .iter()
         .filter(|item| !item.namespace.is_empty())
+        // Same skip rule as the critic queue: fresh cache hits were
+        // applied at load, so only new/unrated games need fetching.
+        .filter(|item| stale || !state.ratings_cache.has_user_rating(&item.id))
         .map(|item| RatingJob {
             sandbox_id: item.namespace.clone(),
             id: item.id.clone(),
@@ -362,6 +427,11 @@ fn pop_rating_task(state: &mut State) -> Task<Message> {
 }
 
 pub fn handle_rating_loaded(state: &mut State, id: String, rating: Option<f32>) -> Task<Message> {
+    let persist = if state.ratings_cache.update_user_rating(id.clone(), rating) {
+        persist_ratings(state)
+    } else {
+        Task::none()
+    };
     if let Some(items) = &mut state.catalog_items
         && let Some(item) = items.iter_mut().find(|item| item.id == id)
     {
@@ -370,7 +440,7 @@ pub fn handle_rating_loaded(state: &mut State, id: String, rating: Option<f32>) 
     // Ratings stream in after the library loads; keep the display order
     // current so a user-rating sort settles as results arrive.
     search::rebuild_order(state);
-    pop_rating_task(state)
+    Task::batch([persist, pop_rating_task(state)])
 }
 
 // A throttled fetch gets another chance: push it to the back so other
