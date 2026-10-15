@@ -125,7 +125,7 @@ pub async fn get_library_catalog(
 ) -> anyhow::Result<LibraryCatalog> {
     use iced::futures::future::{FutureExt, select_all};
 
-    const PAGE_PARALLELISM: usize = 5;
+    const PAGE_PARALLELISM: usize = 16;
     const FALLBACK_STEP: u64 = 100;
 
     // Probe: the first page is fetched alone so the page step can be derived
