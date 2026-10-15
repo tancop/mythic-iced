@@ -266,10 +266,16 @@ fn opencritic_color(rating: CriticRating) -> Color {
     }
 }
 
+const GOLD_RATING: f32 = 4.5;
+
 fn rating_box(rating: f32) -> Element<'static, Message> {
     container(
         row![
-            icon(icons::STAR, 20),
+            if rating >= GOLD_RATING {
+                icon(icons::STAR, 20).color(MYTHIC_GOLD)
+            } else {
+                icon(icons::STAR, 20)
+            },
             text!("{rating:.2}").size(HEADING_TEXT_SIZE).bold()
         ]
         .align_y(Vertical::Center)
