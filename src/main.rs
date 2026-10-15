@@ -14,6 +14,7 @@ mod decode;
 mod epic;
 mod images;
 mod library;
+mod library_cache;
 mod logging;
 mod login;
 mod ratings_cache;
@@ -286,13 +287,17 @@ fn boot() -> (State, Task<Message>) {
     if let Some(token) = login::load_refresh_token()
         && let Ok(auth_data) = login::refresh_blocking(&state.http_client, &token)
     {
-        let task = library::load_library(&state.http_client, &auth_data);
+        // Show the disk cache instantly, then refresh it in the background;
+        // the fresh result replaces the cached one and rewrites the file
+        // when anything changed.
+        let cache_task = library::load_cached(&mut state);
+        let fetch_task = library::load_library(&state.http_client, &auth_data);
 
         login::save_refresh_token(&auth_data.refresh_token);
         state.auth_data = Some(auth_data);
         state.page = Page::Library;
 
-        (state, task)
+        (state, Task::batch([cache_task, fetch_task]))
     } else {
         (state, Task::none())
     }

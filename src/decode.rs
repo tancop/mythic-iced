@@ -185,12 +185,31 @@ where
 
 /// Deserializes game category lists like [ {"path": "games"} ]; null becomes
 /// an empty list instead of failing the enclosing record.
+///
+/// Lenient: also accepts plain `["games"]`, which is how the local library
+/// cache stores categories (plain `Serialize` output). The Epic API shape
+/// (`[{path}]`) still works.
 pub fn deserialize_path_list<'de, D>(de: D) -> Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let opt = Option::<Vec<SingleValueWrapper<String>>>::deserialize(de)?;
-    Ok(opt.unwrap_or_default().into_iter().map(|w| w.0).collect())
+    let opt = Option::<Vec<serde_json::Value>>::deserialize(de)?;
+    let mut out = Vec::new();
+    for value in opt.unwrap_or_default() {
+        match value {
+            serde_json::Value::String(s) => out.push(s),
+            serde_json::Value::Object(map) => {
+                if map.len() == 1
+                    && let Some((_, v)) = map.into_iter().next()
+                    && let serde_json::Value::String(s) = v
+                {
+                    out.push(s);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
 }
 
 use serde::Deserialize;
@@ -200,6 +219,7 @@ use std::marker::PhantomData;
 
 /// Decodes a single value nested in a map (JSON object)
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SingleValueWrapper<T>(pub T);
 
 impl<'de, T> Deserialize<'de> for SingleValueWrapper<T>

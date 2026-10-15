@@ -353,7 +353,7 @@ pub struct CriticScore {
 
 pub type UtcDateTime = chrono::DateTime<chrono::Utc>;
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyImage {
     #[serde(rename = "type")]
@@ -374,7 +374,7 @@ pub struct KeyImage {
     pub uploaded_date: Option<UtcDateTime>,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DlcRef {
     pub id: String,
@@ -384,7 +384,7 @@ pub struct DlcRef {
     pub unsearchable: bool,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MainGameRef {
     pub id: String,
@@ -394,7 +394,7 @@ pub struct MainGameRef {
     pub unsearchable: bool,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseInfo {
     #[serde(default)]
@@ -405,7 +405,7 @@ pub struct ReleaseInfo {
     pub compatible_apps: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogItem {
     pub id: String,
@@ -447,22 +447,23 @@ pub struct CatalogItem {
     pub release_info: Vec<ReleaseInfo>,
 
     // Record-level `productId` (pricing + critic reviews). Not inside
-    // `catalogItem` itself; filled in during merge.
-    #[serde(skip, default)]
+    // `catalogItem` itself in the API response, so missing there; filled in
+    // during merge and persisted in the library cache.
+    #[serde(default)]
     pub product_id: Option<String>,
 
     // OpenCritic score fetched after library load; None when unavailable.
-    #[serde(skip, default)]
+    #[serde(skip)]
     pub critic: Option<CriticScore>,
 
     // Epic user rating (stars out of 5, e.g. 4.67) fetched after library
     // load; None when the product has no rating.
-    #[serde(skip, default)]
+    #[serde(skip)]
     pub user_rating: Option<f32>,
 
     // Precomputed by the loading code via `search::build_search_key`:
     // lowercased title with noise words and punctuation stripped. Never
     // serialized; search compares against this instead of `title`.
-    #[serde(default)]
+    #[serde(skip)]
     pub search_key: String,
 }

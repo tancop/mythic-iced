@@ -30,11 +30,63 @@ pub fn handle_loaded(
 
     search::rebuild_order(state);
 
+    // Persist the fresh library in the background when it differs from disk.
+    // `critic` / `user_rating` / `search_key` are `skip`ped in the file, so
+    // cloning after `apply_cached_ratings` still writes base data only.
+    let persist_task = persist_library(state);
+    let download_tasks = download_missing(state);
+    let decode_task = images::decode_visible(state);
+    let critic_tasks = fetch_critics(state);
+    let rating_tasks = fetch_ratings(state);
+    Task::batch([
+        persist_task,
+        download_tasks,
+        decode_task,
+        critic_tasks,
+        rating_tasks,
+    ])
+}
+
+/// Show the on-disk library instantly at startup. The network fetch still
+/// runs in the background and replaces this via `handle_loaded` when it
+/// completes.
+pub fn load_cached(state: &mut State) -> Task<Message> {
+    let path = crate::library_cache::cache_path();
+    let Some((mut items, purchase_dates)) = crate::library_cache::load(&path) else {
+        return Task::none();
+    };
+    for item in &mut items {
+        item.search_key = search::build_search_key(&item.title);
+    }
+    state.catalog_items = Some(items);
+    state.inflight_fetches = 0;
+    state.purchase_dates = purchase_dates;
+    state.focused_game_idx = None;
+    state.details_error = false;
+
+    apply_cached_ratings(state);
+    search::rebuild_order(state);
+
     let download_tasks = download_missing(state);
     let decode_task = images::decode_visible(state);
     let critic_tasks = fetch_critics(state);
     let rating_tasks = fetch_ratings(state);
     Task::batch([download_tasks, decode_task, critic_tasks, rating_tasks])
+}
+
+// Compare the fresh library against the disk cache off the UI thread and
+// rewrite the file when anything changed. Fire-and-forget: completion maps
+// to `Ignored`.
+fn persist_library(state: &State) -> Task<Message> {
+    let Some(items) = state.catalog_items.clone() else {
+        return Task::none();
+    };
+    let purchase_dates = state.purchase_dates.clone();
+    Task::future(async move {
+        let path = crate::library_cache::cache_path();
+        crate::library_cache::save_if_changed(&items, &purchase_dates, &path);
+        Message::Ignored
+    })
 }
 
 // Spawn one thumbnail download per item missing from the disk cache.
