@@ -116,9 +116,5 @@ pub async fn refresh_token(
     log::debug!("refresh response: {:?}", str::from_utf8(&bytes).unwrap());
     let data = serde_json::from_slice::<AuthData>(&bytes)?;
 
-    if std::env::var("DUMP_TOKENS").is_ok() {
-        std::fs::File::create("tokens.json")?.write_all(&bytes)?;
-    }
-
     Ok(data)
 }
