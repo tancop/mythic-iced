@@ -30,6 +30,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
             matches!(state.page, Page::GameDetail),
             Message::Navigate(Page::GameDetail)
         ),
+        tab(
+            "Settings",
+            matches!(state.page, Page::Settings),
+            Message::Navigate(Page::Settings)
+        ),
     ]
     .padding(Padding {
         top: 4.0,

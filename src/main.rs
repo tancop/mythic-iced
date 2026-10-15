@@ -133,6 +133,7 @@ pub enum Page {
     Login,
     PasteToken,
     GameDetail,
+    Settings,
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +187,7 @@ pub enum Message {
         attempts: u32,
     },
     Navigate(Page),
+    CopyAccessToken,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -246,6 +248,16 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 Task::none()
             }
         }
+        Message::CopyAccessToken => {
+            let Some(token) = state
+                .auth_data
+                .as_ref()
+                .map(|auth| auth.access_token.clone())
+            else {
+                return Task::none();
+            };
+            iced::clipboard::write(token)
+        }
     }
 }
 
@@ -258,6 +270,9 @@ fn view(state: &State) -> Element<'_, Message> {
         Page::PasteToken => ui::login::view_paste_token(state),
         Page::GameDetail => {
             iced::widget::column![ui::navbar::view(state), ui::game_detail::view(state)].into()
+        }
+        Page::Settings => {
+            iced::widget::column![ui::navbar::view(state), ui::settings::view(state)].into()
         }
     }
 }

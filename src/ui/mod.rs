@@ -5,6 +5,7 @@ mod icons;
 pub mod library;
 pub mod login;
 pub mod navbar;
+pub mod settings;
 pub(crate) mod theme;
 pub mod virtual_grid;
 
