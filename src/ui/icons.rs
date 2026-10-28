@@ -7,6 +7,7 @@ use iced_widget::Text;
 use crate::FA_SOLID;
 
 pub const UP_DOWN_ARROW: char = '\u{f338}';
+pub const ARROW_LEFT: char = '\u{f060}';
 pub const X_MARK: char = '\u{f00d}';
 pub const STAR: char = '\u{f005}';
 pub const COPY: char = '\u{f0c5}';

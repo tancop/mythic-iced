@@ -196,12 +196,22 @@ pub fn handle_game_selected(state: &mut State, index: usize) -> Task<Message> {
     };
     let namespace = item.namespace.clone();
 
+    // Opening a different game starts the detail page at the top;
+    // reopening the same one keeps the detail page's last position.
+    if state.focused_game_idx != Some(index) {
+        state.detail_scroll_offset = 0.0;
+    }
     state.focused_game_idx = Some(index);
     state.details_error = false;
     state.page = Page::GameDetail;
 
+    // The detail scrollable is only created when the page is shown and
+    // always starts at the top, so snap it back to the saved offset the
+    // same way the library grid restores its position.
+    let restore = virtual_grid::scroll_detail_to_offset(state.detail_scroll_offset);
+
     if state.game_details.contains_key(&namespace) {
-        return Task::none();
+        return restore;
     }
     let Some(token) = state
         .auth_data
@@ -212,7 +222,7 @@ pub fn handle_game_selected(state: &mut State, index: usize) -> Task<Message> {
     };
     let client = state.http_client.clone();
 
-    Task::future(async move {
+    let fetch = Task::future(async move {
         match epic::get_game_details(&client, &token, &namespace).await {
             Ok(details) => Message::GameDetailsLoaded {
                 namespace,
@@ -223,7 +233,22 @@ pub fn handle_game_selected(state: &mut State, index: usize) -> Task<Message> {
                 Message::GameDetailsFailed
             }
         }
-    })
+    });
+    Task::batch([fetch, restore])
+}
+
+/// Detail page's own scroll state: position saved separately from the
+/// library grid, plus the viewport size the detail layout responds to.
+pub fn handle_detail_scrolled(
+    state: &mut State,
+    offset_y: f32,
+    width: f32,
+    height: f32,
+) -> Task<Message> {
+    state.detail_scroll_offset = offset_y;
+    state.viewport_width = width;
+    state.viewport_height = height;
+    Task::none()
 }
 
 pub fn handle_details_loaded(

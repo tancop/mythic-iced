@@ -1,5 +1,5 @@
 use iced::{
-    Border, Color, Element, Length, Padding, Theme,
+    Alignment, Border, Color, Element, Length, Padding, Theme,
     alignment::Vertical,
     padding,
     widget::{column, container, image, markdown, rich_text, row, scrollable, text},
@@ -7,17 +7,18 @@ use iced::{
 use iced_widget::{canvas, container::Style, space};
 
 use crate::{
-    HEADING_TEXT_SIZE, Message, State,
+    HEADING_TEXT_SIZE, Message, Page, State,
     epic::{CriticRating, GameDetails, TechRequirement},
     images::PixelData,
     ui::{
         TextWidgetExt,
-        icons::{self, icon},
+        icons::{self, ARROW_LEFT, icon, icon_button},
         library::GRID_CONFIG,
         theme::{
             INFO, MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
             OPENCRITIC_WEAK,
         },
+        virtual_grid::DETAIL_SCROLL_ID,
         widgets::progress_circle::ProgressCircle,
     },
 };
@@ -221,11 +222,13 @@ impl<'a> markdown::Viewer<'a, Message> for DetailViewer {
 fn detail_scrollable(content: iced::widget::Column<'_, Message>) -> Element<'_, Message> {
     container(
         scrollable(content.height(Length::Shrink).width(Length::Fill))
+            .id(DETAIL_SCROLL_ID)
             .height(Length::Fill)
             .width(Length::Fill)
             .on_scroll(|viewport| {
                 let bounds = viewport.bounds();
-                Message::DetailViewport {
+                Message::DetailScrolled {
+                    offset_y: viewport.absolute_offset().y,
                     width: bounds.width,
                     height: bounds.height,
                 }
@@ -291,6 +294,36 @@ fn rating_box(rating: f32) -> Element<'static, Message> {
 }
 
 pub fn view(state: &State) -> Element<'_, Message> {
+    // Back button at the top of a narrow left sidebar; the details pane
+    // fills the rest of the window.
+    row![side_bar(), details_view(state)]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// The detail page is only reachable from the library grid, so going back
+/// always returns there.
+fn side_bar() -> Element<'static, Message> {
+    container(column![back_button(), space::vertical()].height(Length::Fill))
+        .width(Length::Fixed(64.0))
+        .height(Length::Fill)
+        .align_x(Alignment::Center)
+        .padding(Padding {
+            top: 16.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        })
+        .style(|theme: &Theme| Style::default().background(theme.palette().primary))
+        .into()
+}
+
+fn back_button() -> Element<'static, Message> {
+    icon_button(ARROW_LEFT, Color::WHITE, Message::Navigate(Page::Library))
+}
+
+fn details_view(state: &State) -> Element<'_, Message> {
     let Some(items) = &state.catalog_items else {
         return centered("Loading...");
     };

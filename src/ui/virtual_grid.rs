@@ -13,6 +13,10 @@ use iced::{
 /// it back to the top programmatically.
 pub const GRID_SCROLL_ID: &str = "library-grid";
 
+/// Stable id of the detail page's scrollable, so the detail page keeps its
+/// own scroll position instead of inheriting the library grid's.
+pub const DETAIL_SCROLL_ID: &str = "game-detail";
+
 /// Task that really moves the grid scrollbar to the top (setting
 /// `scroll_offset` alone only affects thumbnail loading, not the widget).
 pub fn scroll_to_top<Message>() -> Task<Message> {
@@ -24,6 +28,13 @@ pub fn scroll_to_top<Message>() -> Task<Message> {
 /// the top while `state.scroll_offset` still holds the old position.
 pub fn scroll_to_offset<Message>(y: f32) -> Task<Message> {
     scroll_to(GRID_SCROLL_ID, AbsoluteOffset { x: 0.0, y })
+}
+
+/// Task that restores the detail page's scrollbar to a saved offset. The
+/// detail scrollable exists only while its page is shown, so its position
+/// has to be restored the same way the grid's is.
+pub fn scroll_detail_to_offset<Message>(y: f32) -> Task<Message> {
+    scroll_to(DETAIL_SCROLL_ID, AbsoluteOffset { x: 0.0, y })
 }
 
 /// Everything about the grid layout that a caller might want to tune.

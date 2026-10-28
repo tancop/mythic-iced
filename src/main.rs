@@ -62,6 +62,7 @@ fn main() {
     iced::application(boot, update, view)
         .title("Mythic")
         .theme(Theme::Custom(ui::get_theme().into()))
+        .subscription(subscription)
         .settings(Settings {
             default_text_size: DEFAULT_TEXT_SIZE.into(),
             default_font: UI_FONT,
@@ -124,6 +125,10 @@ pub struct State {
     pub rating_queue: VecDeque<library::RatingJob>,
 
     pub focused_game_idx: Option<usize>,
+    // Detail page's own scroll offset, saved separately from the library
+    // grid's so entering details never starts at the grid's position.
+    #[default(0.0)]
+    pub detail_scroll_offset: f32,
     // Full store info by namespace (sandbox id), fetched on demand.
     #[default(HashMap::new())]
     pub game_details: HashMap<String, epic::GameFullDetails>,
@@ -154,7 +159,8 @@ pub enum Message {
         width: f32,
         height: f32,
     },
-    DetailViewport {
+    DetailScrolled {
+        offset_y: f32,
         width: f32,
         height: f32,
     },
@@ -196,6 +202,9 @@ pub enum Message {
         attempts: u32,
     },
     Navigate(Page),
+    // Back navigation (in-page back button or the mouse's back button):
+    // from the detail page this returns to the library.
+    Back,
     CopyAccessToken,
 }
 
@@ -212,11 +221,11 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             width,
             height,
         } => library::handle_scrolled(state, offset_y, width, height),
-        Message::DetailViewport { width, height } => {
-            state.viewport_width = width;
-            state.viewport_height = height;
-            Task::none()
-        }
+        Message::DetailScrolled {
+            offset_y,
+            width,
+            height,
+        } => library::handle_detail_scrolled(state, offset_y, width, height),
         Message::ImageDownloaded(id, bytes) => images::handle_downloaded(state, id, bytes),
         Message::ChunkDecoded { decoded, failed } => {
             images::handle_chunk_decoded(state, decoded, failed)
@@ -264,6 +273,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 Task::none()
             }
         }
+        Message::Back => {
+            if state.page == Page::GameDetail {
+                update(state, Message::Navigate(Page::Library))
+            } else {
+                Task::none()
+            }
+        }
         Message::CopyAccessToken => {
             let Some(token) = state
                 .auth_data
@@ -275,6 +291,17 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             iced::clipboard::write(token)
         }
     }
+}
+
+fn subscription(_state: &State) -> iced::Subscription<Message> {
+    // The mouse's back (side) button acts like in-page back navigation:
+    // pressing it anywhere backs out of the detail page.
+    iced::event::listen_with(|event, _status, _window| match event {
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Back)) => {
+            Some(Message::Back)
+        }
+        _ => None,
+    })
 }
 
 fn view(state: &State) -> Element<'_, Message> {
@@ -335,6 +362,26 @@ mod tests {
 
         // Already on the library: nothing to redirect to.
         let _ = update(&mut state, Message::SearchSubmitted);
+        assert_eq!(state.page, Page::Library);
+    }
+
+    #[test]
+    fn back_press_returns_to_library_from_details() {
+        // Details is only reachable from the library, so back always
+        // lands there.
+        let mut state = State {
+            page: Page::GameDetail,
+            ..State::default()
+        };
+        let _ = update(&mut state, Message::Back);
+        assert_eq!(state.page, Page::Library);
+
+        // On other pages the back button does nothing.
+        let mut state = State {
+            page: Page::Library,
+            ..State::default()
+        };
+        let _ = update(&mut state, Message::Back);
         assert_eq!(state.page, Page::Library);
     }
 }
