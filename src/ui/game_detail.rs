@@ -327,7 +327,10 @@ fn details_view(state: &State) -> Element<'_, Message> {
     let Some(items) = &state.catalog_items else {
         return centered("Loading...");
     };
-    let Some(item) = state.focused_game_idx.and_then(|index| items.get(index)) else {
+    let Some(item) = (match state.page {
+        Page::GameDetail { game_id } => items.get(game_id),
+        _ => None,
+    }) else {
         return centered("Select a game from the library.");
     };
     let Some(full) = state.game_details.get(&item.namespace) else {

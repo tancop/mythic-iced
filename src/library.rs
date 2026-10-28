@@ -20,7 +20,6 @@ pub fn handle_loaded(
     state.catalog_items = Some(items);
     state.inflight_fetches = 0;
     state.purchase_dates = purchase_dates;
-    state.focused_game_idx = None;
     state.details_error = false;
 
     // Show cached scores instantly so rating sorts settle without waiting
@@ -61,7 +60,6 @@ pub fn load_cached(state: &mut State) -> Task<Message> {
     state.catalog_items = Some(items);
     state.inflight_fetches = 0;
     state.purchase_dates = purchase_dates;
-    state.focused_game_idx = None;
     state.details_error = false;
 
     apply_cached_ratings(state);
@@ -198,12 +196,17 @@ pub fn handle_game_selected(state: &mut State, index: usize) -> Task<Message> {
 
     // Opening a different game starts the detail page at the top;
     // reopening the same one keeps the detail page's last position.
-    if state.focused_game_idx != Some(index) {
-        state.detail_scroll_offset = 0.0;
-    }
-    state.focused_game_idx = Some(index);
+    match state.page {
+        Page::GameDetail { game_id } => {
+            if game_id != index {
+                state.detail_scroll_offset = 0.0;
+            }
+        }
+        _ => {}
+    };
+
     state.details_error = false;
-    state.page = Page::GameDetail;
+    state.page = Page::GameDetail { game_id: index };
 
     // The detail scrollable is only created when the page is shown and
     // always starts at the top, so snap it back to the saved offset the

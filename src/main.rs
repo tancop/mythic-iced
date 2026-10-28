@@ -124,7 +124,6 @@ pub struct State {
     // the critic queue but keyed by namespace (sandbox id).
     pub rating_queue: VecDeque<library::RatingJob>,
 
-    pub focused_game_idx: Option<usize>,
     // Detail page's own scroll offset, saved separately from the library
     // grid's so entering details never starts at the grid's position.
     #[default(0.0)]
@@ -143,7 +142,7 @@ pub enum Page {
     Library,
     Login,
     PasteToken,
-    GameDetail,
+    GameDetail { game_id: usize },
     Settings,
 }
 
@@ -274,7 +273,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::Back => {
-            if state.page == Page::GameDetail {
+            if let Page::GameDetail { .. } = state.page {
                 update(state, Message::Navigate(Page::Library))
             } else {
                 Task::none()
@@ -311,7 +310,7 @@ fn view(state: &State) -> Element<'_, Message> {
         }
         Page::Login => ui::login::view(state),
         Page::PasteToken => ui::login::view_paste_token(state),
-        Page::GameDetail => {
+        Page::GameDetail { .. } => {
             iced::widget::column![ui::navbar::view(state), ui::game_detail::view(state)].into()
         }
         Page::Settings => {
@@ -370,7 +369,7 @@ mod tests {
         // Details is only reachable from the library, so back always
         // lands there.
         let mut state = State {
-            page: Page::GameDetail,
+            page: Page::GameDetail { game_id: 0 },
             ..State::default()
         };
         let _ = update(&mut state, Message::Back);
