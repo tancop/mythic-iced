@@ -1,8 +1,6 @@
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Theme, padding,
-    widget::{
-        column, container, image, mouse_area, pick_list, row, space, stack, text, text_input,
-    },
+    widget::{column, container, image, mouse_area, pick_list, row, stack, text},
 };
 
 use iced::widget::container::Style;
@@ -14,7 +12,7 @@ use crate::{
     search::{DLC_FILTERS, SortKey, SortOption, effective_sort_key, sort_options},
     ui::{
         TextWidgetExt,
-        icons::{UP_DOWN_ARROW, X_MARK, icon_button},
+        icons::{UP_DOWN_ARROW, icon_button},
         theme::{
             MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG, OPENCRITIC_WEAK,
         },
@@ -31,60 +29,19 @@ pub const GRID_CONFIG: GridConfig = GridConfig {
 };
 
 pub fn view(state: &State) -> Element<'_, Message> {
-    // The field always renders as the same widget tree (a stack with the
-    // input underneath) so the text input keeps focus while typing:
-    // swapping the whole field on the first keystroke would despawn the
-    // focused input. Only the overlay button itself is conditional. The
-    // input keeps extra right padding so long queries don't slide
-    // underneath the button.
-    let mut overlay = row![space::horizontal()]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_y(Alignment::Center)
-        .padding(Padding {
-            top: 0.0,
-            right: 8.0,
-            bottom: 0.0,
-            left: 0.0,
-        });
-    if !state.search_query.is_empty() {
-        overlay = overlay.push(icon_button(
-            X_MARK,
-            Color::WHITE,
-            Message::SearchQueryChanged(String::new()),
-        ));
-    }
-
-    let search_field: Element<'_, Message> = stack![
-        text_input("Search...", &state.search_query)
-            .on_input(Message::SearchQueryChanged)
-            .padding(Padding {
-                top: 5.0,
-                right: 28.0,
-                bottom: 5.0,
-                left: 5.0,
-            })
-            .width(Length::Fill),
-        overlay,
-    ]
-    .width(Length::Fill)
-    .into();
-
-    let mut toolbar = row![search_field]
-        .spacing(GRID_CONFIG.spacing)
-        .align_y(Alignment::Center);
-
-    toolbar = toolbar
-        .push(text!("Sort:"))
-        .push(pick_list(
+    // The search field lives in the nav bar (`ui::navbar`); this toolbar
+    // only carries the sort and DLC controls.
+    let toolbar = row![
+        text!("Sort:"),
+        pick_list(
             sort_options(state.sort_reverse),
             Some(SortOption {
                 key: effective_sort_key(state),
                 reversed: state.sort_reverse,
             }),
             |option| Message::SortKeySelected(option.key),
-        ))
-        .push(icon_button(
+        ),
+        icon_button(
             UP_DOWN_ARROW,
             if state.sort_reverse {
                 MYTHIC_GOLD
@@ -92,13 +49,16 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 Color::WHITE
             },
             Message::SortReverseToggled(!state.sort_reverse),
-        ))
-        .push(text!("Show:"))
-        .push(pick_list(
+        ),
+        text!("Show:"),
+        pick_list(
             &DLC_FILTERS[..],
             Some(state.filter_dlc),
             Message::DlcFilterSelected,
-        ));
+        ),
+    ]
+    .spacing(GRID_CONFIG.spacing)
+    .align_y(Alignment::Center);
 
     let Some(items) = &state.catalog_items else {
         return container(text!("Loading...")).center(Length::Fill).into();
@@ -237,9 +197,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn toolbar_builds_with_and_without_query() {
-        // The clear button only exists for a non-empty query; both
-        // variants must build without panicking.
+    fn view_builds_with_and_without_query() {
+        // The clear button lives in the nav bar now, but an active query
+        // still switches the effective sort key to `Search`, which changes
+        // the badges on the cards; both variants must build.
         let _ = view(&State::default());
         let state = State {
             search_query: "civ".to_string(),

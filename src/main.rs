@@ -166,6 +166,9 @@ pub enum Message {
     SortReverseToggled(bool),
     DlcFilterSelected(FilterRule),
     SearchQueryChanged(String),
+    // Enter in the nav bar search field: jump to the library so the
+    // results are actually visible.
+    SearchSubmitted,
     GameSelected(usize),
     GameDetailsLoaded {
         namespace: String,
@@ -222,6 +225,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::SortReverseToggled(reverse) => search::set_sort_reverse(state, reverse),
         Message::DlcFilterSelected(rule) => search::set_dlc_filter(state, rule),
         Message::SearchQueryChanged(query) => search::set_search_query(state, query),
+        Message::SearchSubmitted => {
+            // Already on the library means nothing to redirect to.
+            if state.page == Page::Library {
+                return Task::none();
+            }
+            update(state, Message::Navigate(Page::Library))
+        }
         Message::GameSelected(index) => library::handle_game_selected(state, index),
         Message::GameDetailsLoaded { namespace, details } => {
             library::handle_details_loaded(state, namespace, details)
@@ -305,5 +315,26 @@ fn boot() -> (State, Task<Message>) {
         (state, Task::batch([cache_task, fetch_task]))
     } else {
         (state, Task::none())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_submit_redirects_to_library_from_other_pages() {
+        // Enter in the nav bar search field jumps to the library, so the
+        // query typed on another page is actually visible.
+        let mut state = State {
+            page: Page::Settings,
+            ..State::default()
+        };
+        let _ = update(&mut state, Message::SearchSubmitted);
+        assert_eq!(state.page, Page::Library);
+
+        // Already on the library: nothing to redirect to.
+        let _ = update(&mut state, Message::SearchSubmitted);
+        assert_eq!(state.page, Page::Library);
     }
 }

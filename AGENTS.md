@@ -18,7 +18,7 @@ Single-binary Rust GUI client for Epic Games Store (iced 0.14, edition 2024, nig
 - `images.rs` — rkyv-serialized thumbnail cache (`HashMap<String, Vec<u8>>` JPEG bytes) + image pipeline: `resize_image`, per-row-chunk async decode (`decode_visible` → `ChunkDecoded`), download completion handling.
 - `ratings_cache.rs` — rkyv-serialized critic/user-rating cache (`HashMap<String, CachedRating>` + `saved_at`), loaded in `boot`, applied to items on library load; unrated games are never stored, a cache older than 24h refetches everything, and persistence is a coalesced background save (at most one in flight) so streaming arrivals never block the UI thread.
 - `search.rs` — library toolbar state: `SortKey` (non-empty query overrides it with non-selectable `Search`, sorting by `relevance_score`), DLC `FilterRule` + `is_included` (query text never hides items). `State::order` holds indexes into `catalog_items` in display order (filtered + sorted); the vec itself is never reordered. Order is rebuilt once when all catalog fetches drain (`inflight_fetches`) and on control change — never per arrival, so rows don't jump. The grid shows `Loading...` until fetches complete. Purchase dates live in `State::purchase_dates` (filled at load from `acquisitionDate`).
-- `ui/` — `login.rs`, `library.rs`, `theme.rs`; `mod.rs` exposes `get_theme()`.
+- `ui/` — `login.rs`, `library.rs`, `theme.rs`, `navbar.rs` (page tabs + the right-anchored search field, `SEARCH_WIDTH`); `mod.rs` exposes `get_theme()`.
 
 ## Gotchas
 
