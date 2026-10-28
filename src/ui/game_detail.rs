@@ -67,6 +67,74 @@ fn fix_link_spacing(line: &str) -> String {
     out
 }
 
+/// Pull the whitespace Epic can leave inside closing emphasis markers (e.g.
+/// `_"More please!" _`) out of the pair, so it renders as italics like
+/// tightly spaced `_text_`; loose markdown tolerates the gap, strict
+/// CommonMark renders such runs literally. Runs of `_`/`*` are paired by
+/// matching length and delimiter, innermost-first; a run preceded by
+/// whitespace is the gap the pair needs to lose, and the space between the
+/// pair and the following text stays outside where it belongs. Intra-word
+/// underscores (`snake_case`), escaped markers and unmatched runs stay
+/// verbatim.
+fn fix_emphasis_spacing(line: &str) -> String {
+    let bytes = line.as_bytes();
+
+    // Maximal runs of `_`/`*`, skipping backslash-escaped markers.
+    let mut runs: Vec<(usize, usize, char)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let delim = bytes[i];
+        if (delim == b'_' || delim == b'*') && (i == 0 || bytes[i - 1] != b'\\') {
+            let start = i;
+            while i < bytes.len() && bytes[i] == delim {
+                i += 1;
+            }
+            runs.push((start, i - start, delim as char));
+        } else {
+            i += 1;
+        }
+    }
+
+    let mut out = String::with_capacity(line.len());
+    let mut copied = 0;
+    // Unmatched opening runs as (content start, length, delimiter); pairs
+    // nest, so the topmost one closes first (`_a **b** _`).
+    let mut open: Vec<(usize, usize, char)> = Vec::new();
+    for (start, len, delim) in runs {
+        if let Some((open_end, open_len, open_delim)) = open.last().copied()
+            && open_len == len
+            && open_delim == delim
+            && !line[open_end..start].trim().is_empty()
+        {
+            let content = &line[open_end..start];
+            let trailing = content.len() - content.trim_end().len();
+            out.push_str(&line[copied..start - trailing]);
+            for _ in 0..len {
+                out.push(delim);
+            }
+            copied = start + len;
+            open.pop();
+            continue;
+        }
+        // Otherwise this run may open its own pair. `_` cannot open
+        // intra-word (`snake_case`), `*` only needs text to follow.
+        let preceded_ok = line[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric());
+        if line[start + len..]
+            .chars()
+            .next()
+            .is_some_and(|c| !c.is_whitespace())
+            && (delim == '*' || preceded_ok)
+        {
+            open.push((start + len, len, delim));
+        }
+    }
+    out.push_str(&line[copied..]);
+    out
+}
+
 /// Match the `[https://target]` second bracket of a reference-style link and
 /// return the URL plus the consumed byte length, so it can be rewritten as an
 /// inline `(https://target)`. `None` when the bracket doesn't hold a URL:
@@ -85,7 +153,8 @@ fn inline_reference_target(rest: &str) -> Option<(&str, usize)> {
 
 /// Normalize Epic's `longDescription` flavor into strict markdown: only `•`
 /// starts a list, `[label] (url)` gaps are closed, `[label] [url]` reference
-/// targets holding a URL are inlined, and single newlines become hard line
+/// targets holding a URL are inlined, whitespace inside closing emphasis
+/// markers is pulled out of the pair, and single newlines become hard line
 /// breaks. Every other list marker (`*`, `-`, `+`, `1.`/`1)`) is
 /// backslash-escaped so it renders verbatim instead of starting a list.
 /// Fenced code blocks pass through untouched.
@@ -106,6 +175,7 @@ pub fn clean_description(raw: &str) -> String {
             continue;
         }
         let mut fixed = fix_link_spacing(line);
+        fixed = fix_emphasis_spacing(&fixed);
         if let Some(bullet) = fixed.trim_start().strip_prefix('•') {
             fixed = format!("- {}", bullet.trim_start());
         } else if let Some(escaped) = escape_list_marker(&fixed) {
@@ -644,6 +714,34 @@ mod tests {
         assert!(
             dump.contains(r#"link: Some("https://badmarkdown.com")"#),
             "expected a link span, got {dump}"
+        );
+    }
+
+    #[test]
+    fn emphasis_gap_is_closed() {
+        // The case Epic actually emits: the space between the quote and the
+        // closing marker must go, like `_text_` does without spaces.
+        assert_eq!(
+            clean_description("_\"More please!\" _"),
+            "_\"More please!\"_"
+        );
+        // The space after the pair stays (it separates words).
+        assert_eq!(clean_description("a _\"x!\" _ and b"), "a _\"x!\"_ and b");
+        assert_eq!(clean_description("__\"No.\" __"), "__\"No.\"__");
+        assert_eq!(clean_description("*\"Sarcasm.\" *"), "*\"Sarcasm.\"*");
+        // Proper syntax and plain text keep rendering unchanged.
+        assert_eq!(clean_description("_plain_"), "_plain_");
+        assert_eq!(clean_description("**bold**"), "**bold**");
+        assert_eq!(clean_description("snake_case"), "snake_case");
+        assert_eq!(clean_description("a _ _ b"), "a _ _ b");
+    }
+
+    #[test]
+    fn emphasis_gap_parses_as_italic() {
+        let dump = format!("{:?}", parse_description("_\"More please!\" _"));
+        assert!(
+            dump.contains("emphasis: true"),
+            "expected an italic span, got {dump}"
         );
     }
 
