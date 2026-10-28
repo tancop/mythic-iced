@@ -37,18 +37,27 @@ fn is_none_or_empty(value: &Option<String>) -> bool {
     value.as_deref().is_none_or(|v| v.is_empty())
 }
 
-/// Close the gap in `[label] (url)` / `![alt] (url)` pairs Epic sometimes
-/// emits, which strict markdown does not parse as links or images.
+/// Close the gap in `[label] (url)` / `![alt] (url)` pairs and inline the
+/// `[label] [https://url]` reference targets Epic sometimes emits, which
+/// strict markdown does not parse as links or images (a reference link
+/// without a definition renders as literal text).
 fn fix_link_spacing(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut rest = line;
     while let Some(idx) = rest.find(']') {
         let after_bracket = &rest[idx + ']'.len_utf8()..];
         let spaces = after_bracket.len() - after_bracket.trim_start_matches([' ', '\t']).len();
-        if spaces > 0 && after_bracket[spaces..].starts_with('(') {
+        let tail = &after_bracket[spaces..];
+        if spaces > 0 && tail.starts_with('(') {
             out.push_str(&rest[..=idx]);
             out.push('(');
-            rest = &after_bracket[spaces + '('.len_utf8()..];
+            rest = &tail['('.len_utf8()..];
+        } else if let Some((target, len)) = inline_reference_target(tail) {
+            out.push_str(&rest[..=idx]);
+            out.push('(');
+            out.push_str(target);
+            out.push(')');
+            rest = &tail[len..];
         } else {
             out.push_str(&rest[..=idx]);
             rest = after_bracket;
@@ -58,9 +67,26 @@ fn fix_link_spacing(line: &str) -> String {
     out
 }
 
+/// Match the `[https://target]` second bracket of a reference-style link and
+/// return the URL plus the consumed byte length, so it can be rewritten as an
+/// inline `(https://target)`. `None` when the bracket doesn't hold a URL:
+/// definitions of real reference links (e.g. `[note][1]`) must keep working.
+fn inline_reference_target(rest: &str) -> Option<(&str, usize)> {
+    let inner = rest.strip_prefix('[')?;
+    let end = inner.find(']')?;
+    let target = &inner[..end];
+    if target.starts_with("https://") || target.starts_with("http://") {
+        // `[` + target + `]`, all single bytes.
+        Some((target, end + 2))
+    } else {
+        None
+    }
+}
+
 /// Normalize Epic's `longDescription` flavor into strict markdown: only `•`
-/// starts a list, `[label] (url)` gaps are closed, and single newlines become
-/// hard line breaks. Every other list marker (`*`, `-`, `+`, `1.`/`1)`) is
+/// starts a list, `[label] (url)` gaps are closed, `[label] [url]` reference
+/// targets holding a URL are inlined, and single newlines become hard line
+/// breaks. Every other list marker (`*`, `-`, `+`, `1.`/`1)`) is
 /// backslash-escaped so it renders verbatim instead of starting a list.
 /// Fenced code blocks pass through untouched.
 pub fn clean_description(raw: &str) -> String {
@@ -186,8 +212,7 @@ struct DetailViewer;
 
 impl<'a> markdown::Viewer<'a, Message> for DetailViewer {
     fn on_link_click(url: markdown::Uri) -> Message {
-        let _ = url;
-        Message::Ignored
+        Message::OpenUrl(url)
     }
 
     fn heading(
@@ -589,6 +614,36 @@ mod tests {
         assert_eq!(
             clean_description("[label](https://example.com)"),
             "[label](https://example.com)"
+        );
+    }
+
+    #[test]
+    fn reference_style_links_become_inline() {
+        // Epic sometimes emits reference-style targets instead of inline
+        // ones; without a definition they render as literal text.
+        assert_eq!(
+            clean_description("[description][https://badmarkdown.com]"),
+            "[description](https://badmarkdown.com)"
+        );
+        assert_eq!(
+            clean_description("[label] [https://example.com]"),
+            "[label](https://example.com)"
+        );
+        assert_eq!(
+            clean_description("![alt] [https://example.com/img.png]"),
+            "![alt](https://example.com/img.png)"
+        );
+        // Targets that aren't URLs leave real reference links alone.
+        assert_eq!(clean_description("[note][1]"), "[note][1]");
+
+        // The rewritten form parses as a clickable link.
+        let dump = format!(
+            "{:?}",
+            parse_description("[description][https://badmarkdown.com]")
+        );
+        assert!(
+            dump.contains(r#"link: Some("https://badmarkdown.com")"#),
+            "expected a link span, got {dump}"
         );
     }
 

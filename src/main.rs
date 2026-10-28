@@ -205,6 +205,8 @@ pub enum Message {
     // from the detail page this returns to the library.
     Back,
     CopyAccessToken,
+    // Open a URL from the details view's markdown in the default browser.
+    OpenUrl(String),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -288,6 +290,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 return Task::none();
             };
             iced::clipboard::write(token)
+        }
+        Message::OpenUrl(url) => {
+            // Detached: don't block the UI on the browser launching, and
+            // don't tie the browser to the app's lifetime.
+            if let Err(e) = open::that_detached(&url) {
+                log::error!("Failed to open {url} in the browser: {e}");
+            }
+            Task::none()
         }
     }
 }
