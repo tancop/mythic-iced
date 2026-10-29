@@ -30,9 +30,12 @@ fn centered(label: &str) -> Element<'_, Message> {
 }
 
 fn meta_row<'a>(label: &str, value: &str) -> Element<'a, Message> {
-    row![text!("{label}:").bold(), text!("{}", value)]
-        .spacing(8)
-        .into()
+    row![
+        text!("{label}:").bold().color(theme::HIGHLIGHT),
+        text!("{}", value)
+    ]
+    .spacing(8)
+    .into()
 }
 
 fn is_none_or_empty(value: &Option<String>) -> bool {
@@ -341,7 +344,8 @@ impl<'a> markdown::Viewer<'a, Message> for DetailViewer<'a> {
                 rich_text(text.spans(style))
                     .on_link_click(Self::on_link_click)
                     .size(settings.h2_size + 2.0)
-                    .font(crate::BOLD_FONT),
+                    .font(crate::BOLD_FONT)
+                    .color(theme::HIGHLIGHT),
             )
             .padding(iced::padding::top(if index > 0 {
                 settings.text_size / 2.0
@@ -501,7 +505,7 @@ fn details_view(state: &State) -> Element<'_, Message> {
 
     // Narrow identity column next to the cover; the long description gets the
     // full width below.
-    let mut identity = column![text!("{}", title).bold().size(24)]
+    let mut identity = column![text!("{}", title).bold().color(theme::HIGHLIGHT).size(24)]
         .spacing(8)
         .width(Length::Fill);
     if !offer.developer_display_name.is_empty() {
@@ -528,6 +532,7 @@ fn details_view(state: &State) -> Element<'_, Message> {
                 .size(12)
                 .width(Length::Fill)
                 .bold()
+                .color(theme::HIGHLIGHT)
                 .center(),
         ]
         .spacing(4)
@@ -554,6 +559,7 @@ fn details_view(state: &State) -> Element<'_, Message> {
             text!("Recommend")
                 .size(12)
                 .width(Length::Fill)
+                .color(theme::HIGHLIGHT)
                 .bold()
                 .center(),
         ]

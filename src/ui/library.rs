@@ -33,7 +33,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     // The search field lives in the nav bar (`ui::navbar`); this toolbar
     // only carries the sort and DLC controls.
     let toolbar = row![
-        text!("Sort:"),
+        text!("Sort:").color(theme::HIGHLIGHT),
         pick_list(
             sort_options(state.sort_reverse),
             Some(SortOption {
@@ -51,7 +51,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             },
             Message::SortReverseToggled(!state.sort_reverse),
         ),
-        text!("Show:"),
+        text!("Show:").color(theme::HIGHLIGHT),
         pick_list(
             &DLC_FILTERS[..],
             Some(state.filter_dlc),
@@ -97,6 +97,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
                     img,
                     text!("{}", catalog.title)
                         .bold()
+                        .color(theme::HIGHLIGHT)
                         .size(LIBRARY_TITLE_TEXT_SIZE)
                         .wrapping(text::Wrapping::None)
                 ])
