@@ -322,9 +322,13 @@ impl<'a> markdown::Viewer<'a, Message> for DetailViewer<'a> {
                 .content_fit(iced::ContentFit::ScaleDown)
                 .into(),
             // iced's own fallback: the alternative text as a code block.
-            None => container(rich_text(alt.spans(settings.style)))
-                .padding(settings.spacing.0)
-                .into(),
+            // The alt text may contain markdown links, so they stay
+            // clickable with the pointer cursor like the rest of the body.
+            None => container(
+                rich_text(alt.spans(settings.style)).on_link_click(Self::on_link_click),
+            )
+            .padding(settings.spacing.0)
+            .into(),
         }
     }
 
