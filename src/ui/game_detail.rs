@@ -418,7 +418,10 @@ fn rating_box(rating: f32) -> Element<'static, Message> {
             } else {
                 icon(icons::STAR, 20)
             },
-            text!("{rating:.2}").size(HEADING_TEXT_SIZE).bold()
+            text!("{rating:.2}")
+                .size(HEADING_TEXT_SIZE)
+                .bold()
+                .color(theme::HIGHLIGHT)
         ]
         .align_y(Vertical::Center)
         .spacing(5),
