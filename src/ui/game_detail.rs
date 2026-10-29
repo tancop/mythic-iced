@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Theme,
     alignment::Vertical,
-    padding,
+    mouse, padding,
     widget::{column, container, image, markdown, mouse_area, rich_text, row, scrollable, text},
 };
 use iced_widget::{canvas, container::Style, space};
@@ -21,7 +21,7 @@ use crate::{
             OPENCRITIC_WEAK,
         },
         virtual_grid::DETAIL_SCROLL_ID,
-        widgets::progress_circle::ProgressCircle,
+        widgets::{change_cursor::change_cursor, progress_circle::ProgressCircle},
     },
 };
 
@@ -573,13 +573,15 @@ fn details_view(state: &State) -> Element<'_, Message> {
         // Either badge opens the game's OpenCritic page; the URL itself is
         // not rendered, clicking stands in for a text link.
         let open = Message::OpenUrl(url);
-        identity = identity.push(
+        identity = identity.push(change_cursor(
             row![
                 mouse_area(score).on_press(open.clone()),
                 mouse_area(recommend).on_press(open),
             ]
-            .spacing(16),
-        );
+            .spacing(16)
+            .into(),
+            mouse::Interaction::Pointer,
+        ));
     }
 
     let mut content = column![row![cover, identity].spacing(24)]
