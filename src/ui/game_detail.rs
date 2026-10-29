@@ -21,7 +21,7 @@ use crate::{
             OPENCRITIC_WEAK,
         },
         virtual_grid::DETAIL_SCROLL_ID,
-        widgets::{change_cursor::change_cursor, progress_circle::ProgressCircle},
+        widgets::progress_circle::ProgressCircle,
     },
 };
 
@@ -571,17 +571,14 @@ fn details_view(state: &State) -> Element<'_, Message> {
         .width(Length::Shrink);
 
         // Either badge opens the game's OpenCritic page; the URL itself is
-        // not rendered, clicking stands in for a text link.
+        // not rendered, clicking stands in for a text link. `interaction`
+        // shows the pointing cursor while over a badge only.
         let open = Message::OpenUrl(url);
-        identity = identity.push(change_cursor(
-            row![
-                mouse_area(score).on_press(open.clone()),
-                mouse_area(recommend).on_press(open),
-            ]
-            .spacing(16)
-            .into(),
-            mouse::Interaction::Pointer,
-        ));
+        identity = identity.push(
+            mouse_area(row![score, recommend].spacing(16))
+                .on_press(open.clone())
+                .interaction(mouse::Interaction::Pointer),
+        );
     }
 
     let mut content = column![row![cover, identity].spacing(24)]
