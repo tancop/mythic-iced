@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Theme,
     alignment::Vertical,
@@ -260,6 +262,20 @@ pub fn parse_description(raw: &str) -> Vec<markdown::Item> {
     markdown::parse(&clean_description(raw)).collect()
 }
 
+/// URLs of the images embedded in a parsed description, so their bytes can
+/// be fetched when details load and `DetailViewer` can render them in place
+/// of the alt text. Quotes can nest images, so recurse into them.
+pub fn description_image_urls(items: &[markdown::Item]) -> Vec<String> {
+    items
+        .iter()
+        .flat_map(|item| match item {
+            markdown::Item::Image { url, .. } => vec![url.clone()],
+            markdown::Item::Quote(items) => description_image_urls(items),
+            _ => vec![],
+        })
+        .collect()
+}
+
 fn markdown_settings() -> markdown::Settings {
     let mut settings = markdown::Settings::with_text_size(
         crate::DEFAULT_TEXT_SIZE as f32,
@@ -278,11 +294,34 @@ fn markdown_settings() -> markdown::Settings {
 /// Epic-flavored markdown viewer: descriptions use `#` headings for section
 /// titles, but iced's default h1 is double-size medium. Epic renders h1 as
 /// 4pt-larger bold instead (h2 size + 2pt), so remap h1 to that style.
-struct DetailViewer;
+/// Description images are shown via iced's built-in `image` widget at their
+/// original size (`ScaleDown`: never upscaled, so inline decoration stays
+/// pixel-exact); until their bytes arrive, the alt text is displayed.
+struct DetailViewer<'a> {
+    images: &'a HashMap<String, iced::widget::image::Handle>,
+}
 
-impl<'a> markdown::Viewer<'a, Message> for DetailViewer {
+impl<'a> markdown::Viewer<'a, Message> for DetailViewer<'a> {
     fn on_link_click(url: markdown::Uri) -> Message {
         Message::OpenUrl(url)
+    }
+
+    fn image(
+        &self,
+        settings: markdown::Settings,
+        url: &'a markdown::Uri,
+        _title: &'a str,
+        alt: &markdown::Text,
+    ) -> Element<'a, Message> {
+        match self.images.get(url) {
+            Some(handle) => image(handle.clone())
+                .content_fit(iced::ContentFit::ScaleDown)
+                .into(),
+            // iced's own fallback: the alternative text as a code block.
+            None => container(rich_text(alt.spans(settings.style)))
+                .padding(settings.spacing.0)
+                .into(),
+        }
     }
 
     fn heading(
@@ -535,7 +574,9 @@ fn details_view(state: &State) -> Element<'_, Message> {
             container(markdown::view_with(
                 description,
                 markdown_settings(),
-                &DetailViewer,
+                &DetailViewer {
+                    images: &state.detail_images,
+                },
             ))
             .width(if state.viewport_width < (800.0 * 0.9) {
                 Length::FillPortion(9)
@@ -752,6 +793,26 @@ mod tests {
             panic!("expected a single list, got {items:?}");
         };
         assert_eq!(bullets.len(), 2);
+    }
+
+    #[test]
+    fn description_image_urls_are_collected() {
+        let items = parse_description(
+            "![decoration](https://cdn.example.com/icon.png)\n\n> ![nested](https://example.com/b.png)",
+        );
+        assert_eq!(
+            description_image_urls(&items),
+            vec![
+                "https://cdn.example.com/icon.png".to_string(),
+                "https://example.com/b.png".to_string(),
+            ]
+        );
+
+        // No images means nothing to fetch.
+        assert_eq!(
+            description_image_urls(&parse_description("plain text")),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

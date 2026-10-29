@@ -134,6 +134,11 @@ pub struct State {
     // Parsed markdown bodies for the detail view, keyed by namespace.
     #[default(HashMap::new())]
     pub detail_bodies: HashMap<String, Vec<iced::widget::markdown::Item>>,
+    // Encoded bytes of the images embedded in detail-view descriptions,
+    // keyed by URL. Session-only: fetched when details load, never cached
+    // or persisted (covers have their own cache; these are one-offs).
+    #[default(HashMap::new())]
+    pub detail_images: HashMap<String, iced::widget::image::Handle>,
     pub details_error: bool,
 }
 
@@ -180,6 +185,12 @@ pub enum Message {
         details: Box<epic::GameFullDetails>,
     },
     GameDetailsFailed,
+    // Encoded image bytes (empty on failure), fetched for a game
+    // description's embedded images.
+    DescriptionImageDownloaded {
+        url: String,
+        bytes: Vec<u8>,
+    },
     CriticLoaded {
         id: String,
         score: Option<epic::CriticScore>,
@@ -247,6 +258,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             library::handle_details_loaded(state, namespace, details)
         }
         Message::GameDetailsFailed => library::handle_details_failed(state),
+        Message::DescriptionImageDownloaded { url, bytes } => {
+            library::handle_description_image_loaded(state, url, bytes)
+        }
         Message::CriticLoaded { id, score } => library::handle_critic_loaded(state, id, score),
         Message::UserRatingLoaded { id, rating } => {
             library::handle_rating_loaded(state, id, rating)

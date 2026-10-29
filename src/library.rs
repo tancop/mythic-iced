@@ -259,11 +259,55 @@ pub fn handle_details_loaded(
     namespace: String,
     details: Box<epic::GameFullDetails>,
 ) -> Task<Message> {
-    state.detail_bodies.insert(
-        namespace.clone(),
-        crate::ui::game_detail::parse_description(details.description()),
-    );
+    let bodies = crate::ui::game_detail::parse_description(details.description());
+    let downloads = fetch_description_images(state, &bodies);
+    state.detail_bodies.insert(namespace.clone(), bodies);
     state.game_details.insert(namespace, *details);
+    downloads
+}
+
+/// Fetch the images embedded in a game's description so the detail view
+/// renders them instead of their alt text. Bytes stay in
+/// `State::detail_images` (`Handle::from_bytes`) — no disk cache, no
+/// thumbnails: the built-in `image` widget displays them at original size.
+fn fetch_description_images(
+    state: &State,
+    bodies: &[iced::widget::markdown::Item],
+) -> Task<Message> {
+    let client = state.http_client.clone();
+    Task::batch(
+        crate::ui::game_detail::description_image_urls(bodies)
+            .into_iter()
+            .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+            .map(|url| {
+                let client = client.clone();
+                Task::future(async move {
+                    let bytes = match client.get_async(&url).await {
+                        Ok(mut res) => res.bytes().await.map(|b| b.to_vec()).unwrap_or_default(),
+                        Err(e) => {
+                            log::error!("Failed to fetch description image {url}: {e}");
+                            Vec::new()
+                        }
+                    };
+                    Message::DescriptionImageDownloaded { url, bytes }
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+pub fn handle_description_image_loaded(
+    state: &mut State,
+    url: String,
+    bytes: Vec<u8>,
+) -> Task<Message> {
+    if bytes.is_empty() {
+        // Failed fetch: keep what was rendered so far (the alt text).
+        return Task::none();
+    }
+    state
+        .detail_images
+        .insert(url, iced::widget::image::Handle::from_bytes(bytes));
     Task::none()
 }
 
