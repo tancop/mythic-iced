@@ -4,7 +4,7 @@ use iced::{
     Alignment, Border, Color, Element, Length, Padding, Theme,
     alignment::Vertical,
     padding,
-    widget::{column, container, image, markdown, rich_text, row, scrollable, text},
+    widget::{column, container, image, markdown, mouse_area, rich_text, row, scrollable, text},
 };
 use iced_widget::{canvas, container::Style, space};
 
@@ -521,6 +521,7 @@ fn details_view(state: &State) -> Element<'_, Message> {
         identity = identity.push(rating_box(rating));
     }
     if let Some(critic) = item.critic.as_ref() {
+        let url = critic.url.clone();
         let score = column![
             canvas(ProgressCircle {
                 progress: critic.average as f32 / 100.0,
@@ -569,11 +570,16 @@ fn details_view(state: &State) -> Element<'_, Message> {
         .spacing(4)
         .width(Length::Shrink);
 
-        identity = identity.push(row![score, recommend].spacing(16));
-
-        if !critic.url.is_empty() {
-            identity = identity.push(text!("{}", critic.url).size(12));
-        }
+        // Either badge opens the game's OpenCritic page; the URL itself is
+        // not rendered, clicking stands in for a text link.
+        let open = Message::OpenUrl(url);
+        identity = identity.push(
+            row![
+                mouse_area(score).on_press(open.clone()),
+                mouse_area(recommend).on_press(open),
+            ]
+            .spacing(16),
+        );
     }
 
     let mut content = column![row![cover, identity].spacing(24)]
