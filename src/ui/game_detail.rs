@@ -17,7 +17,7 @@ use crate::{
         icons::{self, ARROW_LEFT, icon, icon_button},
         library::GRID_CONFIG,
         theme::{
-            INFO, MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
+            self, INFO, MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
             OPENCRITIC_WEAK,
         },
         virtual_grid::DETAIL_SCROLL_ID,
@@ -281,6 +281,7 @@ fn markdown_settings() -> markdown::Settings {
         crate::DEFAULT_TEXT_SIZE as f32,
         markdown::Style {
             font: crate::UI_FONT,
+            link_color: theme::HIGHLIGHT,
             ..markdown::Style::from_palette(crate::ui::theme::MAIN_PALETTE)
         },
     );
@@ -454,7 +455,11 @@ fn side_bar() -> Element<'static, Message> {
 }
 
 fn back_button() -> Element<'static, Message> {
-    icon_button(ARROW_LEFT, Color::WHITE, Message::Navigate(Page::Library))
+    icon_button(
+        ARROW_LEFT,
+        theme::HIGHLIGHT,
+        Message::Navigate(Page::Library),
+    )
 }
 
 fn details_view(state: &State) -> Element<'_, Message> {

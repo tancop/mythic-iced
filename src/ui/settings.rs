@@ -8,7 +8,7 @@ use crate::{
     ui::{
         TextWidgetExt,
         icons::{COPY, icon_button},
-        theme::WARNING,
+        theme::{self, WARNING},
     },
 };
 
@@ -34,7 +34,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
             bottom: 0.0,
             left: 0.0,
         })
-        .push(icon_button(COPY, Color::WHITE, Message::CopyAccessToken));
+        .push(icon_button(
+            COPY,
+            theme::HIGHLIGHT,
+            Message::CopyAccessToken,
+        ));
 
     let field: Element<'_, Message> = stack![
         text_input("", token)

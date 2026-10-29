@@ -8,6 +8,7 @@ use crate::{
     ui::{
         TextWidgetExt,
         icons::{X_MARK, icon_button},
+        theme,
     },
 };
 
@@ -22,7 +23,11 @@ fn tab<'a>(content: &'a str, active: bool, on_press: Message) -> Element<'a, Mes
         text(content)
             .bold()
             .size(crate::HEADING_TEXT_SIZE)
-            .color(if active { Color::WHITE } else { INACTIVE_TAB }),
+            .color(if active {
+                theme::HIGHLIGHT
+            } else {
+                INACTIVE_TAB
+            }),
     )
     .on_press(on_press)
     .into()
@@ -48,7 +53,7 @@ fn search_field(state: &State) -> Element<'_, Message> {
     if !state.search_query.is_empty() {
         overlay = overlay.push(icon_button(
             X_MARK,
-            Color::WHITE,
+            theme::HIGHLIGHT,
             Message::SearchQueryChanged(String::new()),
         ));
     }

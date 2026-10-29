@@ -14,7 +14,8 @@ use crate::{
         TextWidgetExt,
         icons::{UP_DOWN_ARROW, icon_button},
         theme::{
-            MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG, OPENCRITIC_WEAK,
+            self, MYTHIC_GOLD, OPENCRITIC_FAIR, OPENCRITIC_MIGHTY, OPENCRITIC_STRONG,
+            OPENCRITIC_WEAK,
         },
         virtual_grid::{self, GridConfig, GridViewport},
     },
@@ -46,7 +47,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             if state.sort_reverse {
                 MYTHIC_GOLD
             } else {
-                Color::WHITE
+                theme::HIGHLIGHT
             },
             Message::SortReverseToggled(!state.sort_reverse),
         ),
@@ -176,7 +177,7 @@ fn badge(label: String, background: Option<Color>) -> Element<'static, Message> 
         text!("{label}")
             .bold()
             .size(HEADING_TEXT_SIZE)
-            .color(Color::WHITE),
+            .color(theme::HIGHLIGHT),
     )
     .padding(Padding {
         top: 2.0,
