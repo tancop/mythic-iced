@@ -4,9 +4,10 @@
 //! Only the newest [`MAX_LOG_FILES`] files matching that scheme are kept;
 //! anything else (e.g. a renamed file) is left alone.
 
-use std::fs::{self, File};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 const MAX_LOG_FILES: usize = 10;
 const LOG_PREFIX: &str = "mythic-";
@@ -52,58 +53,61 @@ fn rotate_logs_in(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn create_log_file(dir: &Path) -> io::Result<File> {
+fn open_log_file(dir: &Path) -> io::Result<std::fs::File> {
     fs::create_dir_all(dir)?;
     if let Err(e) = rotate_logs_in(dir) {
         eprintln!("warning: log rotation failed: {e}");
     }
-    fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(log_filename(chrono::Local::now())))
+    fern::log_file(dir.join(log_filename(chrono::Local::now())))
 }
 
-/// Duplicates every record to stderr and the log file.
-struct Tee {
-    file: File,
-    stderr: io::Stderr,
-}
-
-impl Write for Tee {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.file.write_all(buf)?;
-        self.stderr.write_all(buf)?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()?;
-        self.stderr.flush()
-    }
+fn parse_level(s: &str) -> Option<log::LevelFilter> {
+    log::LevelFilter::from_str(s).ok()
 }
 
 /// Initialize logging. Honors `RUST_LOG` when set; otherwise the
 /// `MYTHIC_DEBUG` env var selects the equivalent of
 /// `RUST_LOG="warn,mythic=debug"`.
 pub fn init() {
-    let mut builder = env_logger::Builder::from_default_env();
-    if std::env::var_os("RUST_LOG").is_none() && std::env::var_os("MYTHIC_DEBUG").is_some() {
-        builder.parse_filters("warn,mythic=debug");
+    let filters = std::env::var_os("RUST_LOG")
+        .map(|v| v.to_string_lossy().into_owned())
+        .or_else(|| std::env::var_os("MYTHIC_DEBUG").map(|_| "warn,mythic=debug".to_owned()))
+        .unwrap_or_else(|| "error".to_owned());
+
+    let mut dispatch = fern::Dispatch::new().format(|out, message, record| {
+        out.finish(format_args!(
+            "[{} {:<5} {}] {}",
+            chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%:z"),
+            record.level(),
+            record.target(),
+            message
+        ))
+    });
+
+    for directive in filters.split(',').map(str::trim).filter(|d| !d.is_empty()) {
+        let (target, level) = directive
+            .split_once('=')
+            .map(|(target, level)| (Some(target.trim()), level.trim()))
+            .unwrap_or((None, directive));
+        let Some(level) = parse_level(level) else {
+            eprintln!("warning: ignoring unparsable log directive {directive:?}");
+            continue;
+        };
+        dispatch = match target {
+            Some(target) => dispatch.level_for(target.to_owned(), level),
+            None => dispatch.level(level),
+        };
     }
 
-    match create_log_file(&logs_dir()) {
-        Ok(file) => {
-            builder.target(env_logger::Target::Pipe(Box::new(Tee {
-                file,
-                stderr: io::stderr(),
-            })));
-        }
+    match open_log_file(&logs_dir()) {
+        Ok(file) => dispatch = dispatch.chain(file),
         Err(e) => {
             eprintln!("warning: file logging disabled: {e}");
         }
     }
+    dispatch = dispatch.chain(io::stderr());
 
-    let _ = builder.try_init();
+    let _ = dispatch.apply();
     log::info!("logging to {}", logs_dir().display());
 }
 
