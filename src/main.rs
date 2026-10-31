@@ -216,6 +216,11 @@ pub enum Message {
     // from the detail page this returns to the library.
     Back,
     CopyAccessToken,
+    // Settings-page debug-logging checkbox: flips the global flag the
+    // fern filter consults.
+    DebugLoggingToggled(bool),
+    // Settings-page link: open the log files folder in Explorer.
+    OpenLogsFolder,
     // Open a URL from the details view's markdown in the default browser.
     OpenUrl(String),
 }
@@ -304,6 +309,19 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 return Task::none();
             };
             iced::clipboard::write(token)
+        }
+        Message::DebugLoggingToggled(enabled) => {
+            logging::set_debug_logging(enabled);
+            Task::none()
+        }
+        Message::OpenLogsFolder => {
+            let dir = logging::logs_dir();
+            // Same detached pattern as OpenUrl: don't block the UI on
+            // Explorer:
+            if let Err(e) = open::that_detached(&dir) {
+                log::error!("Failed to open log folder {dir:?}: {e}");
+            }
+            Task::none()
         }
         Message::OpenUrl(url) => {
             // Detached: don't block the UI on the browser launching, and

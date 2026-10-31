@@ -1,10 +1,10 @@
 use iced::{
-    Alignment, Color, Element, Length, Padding,
-    widget::{column, container, row, space, stack, text, text_input},
+    Alignment, Border, Color, Element, Length, Padding, Shadow, Theme,
+    widget::{button, checkbox, column, container, row, space, stack, text, text_input},
 };
 
 use crate::{
-    Message, State,
+    Message, State, logging,
     ui::{
         TextWidgetExt,
         icons::{COPY, icon_button},
@@ -55,6 +55,17 @@ pub fn view(state: &State) -> Element<'_, Message> {
     .width(Length::Fill)
     .into();
 
+    let logging_row = row![
+        checkbox(logging::debug_logging_enabled())
+            .label("Debug logging")
+            .on_toggle(Message::DebugLoggingToggled),
+        // Plain text styled like a hyperlink; there is no dedicated
+        // link widget in this iced version.
+        text_button("Open log folder", theme::INFO, Message::OpenLogsFolder),
+    ]
+    .spacing(16)
+    .align_y(Alignment::Center);
+
     container(
         column![
             text!("Access token").bold(),
@@ -62,9 +73,29 @@ pub fn view(state: &State) -> Element<'_, Message> {
             text!("Warning: this token grants full access to your account. Do not share it with anyone.")
                 .size(14)
                 .color(WARNING),
+            space::vertical().height(16),
+            text!("Logging").bold(),
+            logging_row,
         ]
         .spacing(8),
     )
     .padding(16)
     .into()
+}
+
+/// Hyperlink-styled text button: colored label on a transparent
+/// background, since this iced version has no dedicated link widget.
+/// Same transparent style as `icons::icon_button`.
+fn text_button<'a>(label: &'a str, color: Color, on_press: Message) -> Element<'a, Message> {
+    button(text(label))
+        .padding(0)
+        .on_press(on_press)
+        .style(move |_theme: &Theme, _status| button::Style {
+            background: None,
+            text_color: color,
+            border: Border::default(),
+            shadow: Shadow::default(),
+            snap: true,
+        })
+        .into()
 }
