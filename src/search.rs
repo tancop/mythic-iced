@@ -17,8 +17,8 @@ pub const DLC_FILTERS: [FilterRule; 3] = [FilterRule::Allow, FilterRule::Only, F
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SortKey {
     ReleaseDate,
-    PurchaseDate,
     #[default]
+    PurchaseDate,
     Title,
     Critic,
     UserRating,

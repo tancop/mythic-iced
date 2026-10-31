@@ -110,7 +110,10 @@ pub struct State {
     #[default(FilterRule::Block)]
     pub filter_dlc: FilterRule,
     pub search_query: String,
+
+    // Default order is last purchased
     pub sort_key: SortKey,
+    #[default(true)]
     pub sort_reverse: bool,
     // Indexes into catalog_items in display order (filtered + sorted)
     pub order: Vec<usize>,
